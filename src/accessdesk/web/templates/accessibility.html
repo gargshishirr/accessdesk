@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Accessibility statement</h1>
+<p class="lead">AccessDesk should work for everyone who needs to request, approve or review access, including people who use a keyboard, a screen reader, a screen magnifier, voice control or high contrast settings.</p>
+
+<h2>What you can do</h2>
+<ul class="list-bullet">
+  <li>Use every feature with a keyboard alone. The first link on every page skips to the main content.</li>
+  <li>Zoom to 400%, or use a window 320 pixels wide, without content being cut off. Wide tables scroll inside their own box.</li>
+  <li>Use Windows high contrast (forced colours) mode and still see focus outlines and status labels.</li>
+  <li>Use the site with JavaScript turned off. It does not use any.</li>
+  <li>Fix form mistakes easily. Every problem is listed at the top of the page, linked to its field and announced to screen readers.</li>
+  <li>Take your time. Sessions last 24 hours, and nothing on a page times out sooner.</li>
+</ul>
+
+<h2>How it is tested</h2>
+<ul class="list-bullet">
+  <li>Every page, including error states, is scanned with axe-core against WCAG 2.0, 2.1 and 2.2 level A and AA rules on every change. The build fails if any rule is broken.</li>
+  <li>An automated keyboard-only test signs in, asks for access and approves it without a mouse.</li>
+  <li>Automated tests check that pages fit a 320 pixel wide screen and keep visible focus outlines in forced colours mode.</li>
+</ul>
+
+<h2>Known limitations</h2>
+<ul class="list-bullet">
+  <li>Automated tools find only some accessibility problems. AccessDesk has not yet been tested by disabled users or audited manually with screen readers.</li>
+  <li>Times are shown in UTC only.</li>
+</ul>
+
+<h2>Compliance status</h2>
+<p>AccessDesk aims to meet WCAG 2.2 level AA. It passes all automated checks, but until a full manual audit is done it should be treated as partially conformant.</p>
+
+<h2>Reporting problems</h2>
+<p>If something does not work for you, open an issue in the project's GitHub repository. Say which page you were on and what happened.</p>
+{% endblock %}

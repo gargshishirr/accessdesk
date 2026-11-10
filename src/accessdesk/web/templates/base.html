@@ -1,0 +1,69 @@
+{% import "_macros.html" as m %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% if errors %}Error: {% endif %}{{ title }} | AccessDesk</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to main content</a>
+<header class="site-header">
+  <div class="container header-bar">
+    <a class="brand" href="/">AccessDesk</a>
+    {% if user %}
+    <form class="account" method="post" action="/signout">
+      {{ m.csrf(csrf_token) }}
+      <span class="account-name">{{ user.name }}</span>
+      <button type="submit" class="link-button">Sign out</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if user %}
+  <nav class="site-nav" aria-label="Main">
+    <ul class="container nav-list">
+      <li><a href="/"{% if active_nav == "home" %} aria-current="page"{% endif %}>My access</a></li>
+      <li><a href="/requests/new"{% if active_nav == "new" %} aria-current="page"{% endif %}>Request access</a></li>
+      <li><a href="/approvals"{% if active_nav == "approvals" %} aria-current="page"{% endif %}>Approvals{% if waiting %} <span class="badge">{{ waiting }}<span class="visually-hidden"> waiting</span></span>{% endif %}</a></li>
+      {% if can_review %}
+      <li><a href="/reviews"{% if active_nav == "reviews" %} aria-current="page"{% endif %}>Access reviews</a></li>
+      {% endif %}
+      {% if user.is_security %}
+      <li><a href="/audit"{% if active_nav == "audit" %} aria-current="page"{% endif %}>Audit log</a></li>
+      {% endif %}
+    </ul>
+  </nav>
+  {% endif %}
+</header>
+<main id="main" class="container main" tabindex="-1">
+  {% if flash %}
+  <div class="notice notice-{{ flash.kind }}" role="alert" tabindex="-1"{% if not errors %} autofocus{% endif %}>
+    <p>{{ flash.text }}</p>
+  </div>
+  {% endif %}
+  {% if errors %}
+  <div class="error-summary" tabindex="-1" autofocus>
+    <div role="alert">
+      <h2 class="error-summary-title">There is a problem</h2>
+      <ul class="error-summary-list">
+        {% for field, message in errors.items() %}
+        <li><a href="#{{ error_anchors.get(field, field) }}">{{ message }}</a></li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="site-footer">
+  <div class="container">
+    <ul class="footer-links">
+      <li><a href="/accessibility">Accessibility statement</a></li>
+      <li><a href="/api/docs">API documentation</a></li>
+    </ul>
+  </div>
+</footer>
+</body>
+</html>

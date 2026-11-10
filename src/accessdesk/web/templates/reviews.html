@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Access reviews</h1>
+<p class="lead">{% if user.is_security %}Everyone's active access.{% else %}Active access to resources you own.{% endif %} Remove anything that is no longer needed.</p>
+{% if grants %}
+<div class="table-wrap" role="region" aria-labelledby="reviews-caption" tabindex="0">
+  <table class="table">
+    <caption id="reviews-caption" class="visually-hidden">Active access</caption>
+    <thead>
+      <tr><th scope="col">Person</th><th scope="col">Resource</th><th scope="col">Access</th><th scope="col">Granted</th><th scope="col">Ends</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
+    </thead>
+    <tbody>
+      {% for g in grants %}
+      <tr>
+        <th scope="row">{{ g.user.name }}</th>
+        <td>{{ g.resource.name }}</td>
+        <td>{{ g.role.value|capitalize }}</td>
+        <td>{{ m.time(g.granted_at) }}</td>
+        <td>{{ m.time(g.expires_at) }}<br><span class="hint">{{ remaining(g.expires_at, now) }}</span></td>
+        <td><a href="/grants/{{ g.id }}/revoke">Remove<span class="visually-hidden"> {{ g.user.name }}'s {{ g.role.value }} access to {{ g.resource.name }}</span></a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p>Nobody has active access to review.</p>
+{% endif %}
+{% endblock %}

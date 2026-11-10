@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<a class="back-link" href="/reviews">Back to access reviews</a>
+<h1>Remove {{ grant.user.name }}'s access</h1>
+<dl class="summary">
+  <div><dt>Resource</dt><dd>{{ grant.resource.name }}</dd></div>
+  <div><dt>Access</dt><dd>{{ grant.role.value|capitalize }}</dd></div>
+  <div><dt>Would end</dt><dd>{{ m.time(grant.expires_at) }} ({{ remaining(grant.expires_at, now) }})</dd></div>
+</dl>
+<form method="post" action="/grants/{{ grant.id }}/revoke" novalidate>
+  {{ m.csrf(csrf_token) }}
+  {% set note_error = errors.get("note") %}
+  <div class="field{% if note_error %} field-error{% endif %}">
+    <label class="label" for="note">Why are you removing this access?</label>
+    <div id="note-hint" class="hint">This goes in the audit log, and {{ grant.user.name }} will see it.</div>
+    {{ m.error_message(errors, "note", "note") }}
+    <textarea class="textarea{% if note_error %} input-error{% endif %}" id="note" name="note" rows="3" aria-describedby="note-hint{% if note_error %} note-error{% endif %}"{% if note_error %} aria-invalid="true"{% endif %}>{{ form.get("note", "") }}</textarea>
+  </div>
+  <button type="submit" class="button button-warning">Remove access</button>
+</form>
+{% endblock %}

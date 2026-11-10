@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>My access</h1>
+<p><a class="button" href="/requests/new">Request access</a></p>
+
+<h2 id="active-heading">Active access</h2>
+{% if grants %}
+<div class="table-wrap" role="region" aria-labelledby="active-heading" tabindex="0">
+  <table class="table" aria-labelledby="active-heading">
+    <thead>
+      <tr><th scope="col">Resource</th><th scope="col">Access</th><th scope="col">Ends</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
+    </thead>
+    <tbody>
+      {% for g in grants %}
+      <tr>
+        <th scope="row">{{ g.resource.name }}</th>
+        <td>{{ g.role.value|capitalize }}</td>
+        <td>{{ m.time(g.expires_at) }}<br><span class="hint">{{ remaining(g.expires_at, now) }}</span></td>
+        <td>
+          <form method="post" action="/grants/{{ g.id }}/release">
+            {{ m.csrf(csrf_token) }}
+            <button type="submit" class="button button-secondary button-small">Give back now<span class="visually-hidden">: {{ g.role.value }} access to {{ g.resource.name }}</span></button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p>You have no temporary access right now.</p>
+{% endif %}
+
+<h2 id="requests-heading">My requests</h2>
+{% if requests %}
+<div class="table-wrap" role="region" aria-labelledby="requests-heading" tabindex="0">
+  <table class="table" aria-labelledby="requests-heading">
+    <thead>
+      <tr><th scope="col">Request</th><th scope="col">Resource</th><th scope="col">Access</th><th scope="col">Status</th><th scope="col">Submitted</th></tr>
+    </thead>
+    <tbody>
+      {% for r in requests %}
+      <tr>
+        <th scope="row"><a href="/requests/{{ r.id }}">#{{ r.id }}<span class="visually-hidden">: {{ r.resource.name }}</span></a></th>
+        <td>{{ r.resource.name }}</td>
+        <td>{{ r.role.value|capitalize }}</td>
+        <td>{{ m.status_tag(r.status) }}</td>
+        <td>{{ m.time(r.created_at) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p>You have not asked for any access yet.</p>
+{% endif %}
+
+{% if ended %}
+<h2 id="ended-heading">Recently ended</h2>
+<div class="table-wrap" role="region" aria-labelledby="ended-heading" tabindex="0">
+  <table class="table" aria-labelledby="ended-heading">
+    <thead>
+      <tr><th scope="col">Resource</th><th scope="col">Access</th><th scope="col">Ended</th><th scope="col">How</th></tr>
+    </thead>
+    <tbody>
+      {% for g in ended %}
+      <tr>
+        <th scope="row">{{ g.resource.name }}</th>
+        <td>{{ g.role.value|capitalize }}</td>
+        <td>{{ m.time(g.ended_at or g.expires_at) }}</td>
+        <td>{{ m.grant_end(g, names, capital=true)|trim }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

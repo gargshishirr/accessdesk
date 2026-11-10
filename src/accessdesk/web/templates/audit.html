@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Audit log</h1>
+{% if verification.ok %}
+<div class="panel panel-success">
+  <p><strong>Chain intact.</strong> All {{ plural(verification.events, "entry", "entries") }} check out.</p>
+  <p>Latest hash: <code class="hash">{{ verification.head_hash }}</code></p>
+</div>
+{% else %}
+<div class="panel panel-error">
+  <p><strong>Chain broken at entry {{ verification.first_invalid_seq }}.</strong> {{ verification.problem }}.</p>
+</div>
+{% endif %}
+<p>Each entry includes the SHA-256 hash of the one before it, so editing, inserting or deleting history breaks the chain. Copy the latest hash to another system to also catch someone deleting the newest entries.</p>
+<div class="table-wrap" role="region" aria-labelledby="audit-caption" tabindex="0">
+  <table class="table table-dense">
+    <caption id="audit-caption" class="table-caption">Latest {{ events|length }} entries, newest first</caption>
+    <thead>
+      <tr><th scope="col">Entry</th><th scope="col">Time</th><th scope="col">Who</th><th scope="col">What</th><th scope="col">Subject</th><th scope="col">Details</th></tr>
+    </thead>
+    <tbody>
+      {% for e in events %}
+      <tr>
+        <th scope="row">{{ e.seq }}</th>
+        <td>{{ m.time(e.ts) }}</td>
+        <td>{{ names.get(e.actor, e.actor) }}</td>
+        <td>{{ e.action }}</td>
+        <td>{{ e.subject }}</td>
+        <td><code class="details">{{ e.details|tojson }}</code></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

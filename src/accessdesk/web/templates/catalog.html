@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Request access</h1>
+<p class="lead">Choose what you need. All access is temporary and ends on its own.</p>
+<ul class="cards" id="catalog">
+  {% for res in resources %}
+  <li class="card">
+    <h2 class="card-title">{{ res.name }}</h2>
+    <p>{{ res.description }}</p>
+    <dl class="facts">
+      <div><dt>Sensitivity</dt><dd>{{ m.sensitivity_tag(res.sensitivity) }}</dd></div>
+      <div><dt>Who approves</dt><dd>{{ route_text(res, user) }}</dd></div>
+      <div><dt>Longest access</dt><dd>{{ res.max_hours|duration }}</dd></div>
+      <div><dt>Levels</dt><dd>{{ res.roles|map(attribute="value")|join(", ")|capitalize }}</dd></div>
+    </dl>
+    <a class="button button-secondary" href="/requests/new?resource={{ res.id }}">Request access<span class="visually-hidden"> to {{ res.name }}</span></a>
+  </li>
+  {% endfor %}
+</ul>
+{% endblock %}

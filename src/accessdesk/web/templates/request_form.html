@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+<a class="back-link" href="/requests/new">Back to all resources</a>
+<h1><span class="caption">Request access to</span> {{ resource.name }}</h1>
+<p class="lead">{{ resource.description }}</p>
+<dl class="facts facts-panel">
+  <div><dt>Owner</dt><dd>{{ owner.name if owner else resource.owner_id }}</dd></div>
+  <div><dt>Sensitivity</dt><dd>{{ m.sensitivity_tag(resource.sensitivity) }}</dd></div>
+  <div><dt>Who approves</dt><dd>{{ route_text(resource, user) }}.</dd></div>
+  <div><dt>Your manager</dt><dd>{% if manager %}{{ manager.name }}{% else %}None on file, so security approves instead{% endif %}</dd></div>
+</dl>
+<form method="post" action="/requests" novalidate>
+  {{ m.csrf(csrf_token) }}
+  <input type="hidden" name="resource_id" value="{{ resource.id }}">
+
+  {% set role_error = errors.get("role") %}
+  <div class="field{% if role_error %} field-error{% endif %}">
+    <fieldset class="fieldset" aria-describedby="role-hint{% if role_error %} role-error{% endif %}">
+      <legend class="legend">What level of access do you need?</legend>
+      <div id="role-hint" class="hint">Ask for the lowest level that lets you do the job.</div>
+      {{ m.error_message(errors, "role", "role") }}
+      <div class="radios">
+        {% for role in resource.roles %}
+        <div class="radio">
+          <input class="radio-input" type="radio" id="role-{{ role.value }}" name="role" value="{{ role.value }}" aria-describedby="role-{{ role.value }}-hint"{% if form.get("role") == role.value %} checked{% endif %}>
+          <label class="radio-label" for="role-{{ role.value }}">{{ role.value|capitalize }}</label>
+          <div id="role-{{ role.value }}-hint" class="hint radio-hint">{{ ROLE_DESCRIPTIONS[role] }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </fieldset>
+  </div>
+
+  {% set hours_error = errors.get("hours") %}
+  <div class="field{% if hours_error %} field-error{% endif %}">
+    <label class="label" for="hours">For how many hours?</label>
+    <div id="hours-hint" class="hint">Up to {{ resource.max_hours|duration }}. Access ends on its own, and you can give it back early.</div>
+    {{ m.error_message(errors, "hours", "hours") }}
+    <input class="input input-short{% if hours_error %} input-error{% endif %}" id="hours" name="hours" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" value="{{ form.get('hours', '') }}" aria-describedby="hours-hint{% if hours_error %} hours-error{% endif %}"{% if hours_error %} aria-invalid="true"{% endif %}>
+  </div>
+
+  {% set why_error = errors.get("justification") %}
+  <div class="field{% if why_error %} field-error{% endif %}">
+    <label class="label" for="justification">Why do you need it?</label>
+    <div id="justification-hint" class="hint">Approvers will read this. Say what you will do, and include a ticket number if you have one. Use 10 to 500 characters.</div>
+    {{ m.error_message(errors, "justification", "justification") }}
+    <textarea class="textarea{% if why_error %} input-error{% endif %}" id="justification" name="justification" rows="4" aria-describedby="justification-hint{% if why_error %} justification-error{% endif %}"{% if why_error %} aria-invalid="true"{% endif %}>{{ form.get("justification", "") }}</textarea>
+  </div>
+
+  <button type="submit" class="button">Send request</button>
+</form>
+{% endblock %}

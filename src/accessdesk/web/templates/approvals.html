@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Approvals</h1>
+{% if pending %}
+<p class="lead">{{ plural(pending|length, "request") }} waiting for your decision.</p>
+<div class="table-wrap" role="region" aria-labelledby="pending-caption" tabindex="0">
+  <table class="table">
+    <caption id="pending-caption" class="visually-hidden">Requests waiting for your decision</caption>
+    <thead>
+      <tr><th scope="col">Request</th><th scope="col">From</th><th scope="col">Resource</th><th scope="col">Sensitivity</th><th scope="col">Access</th><th scope="col">Duration</th><th scope="col">Submitted</th></tr>
+    </thead>
+    <tbody>
+      {% for r in pending %}
+      <tr>
+        <th scope="row"><a href="/requests/{{ r.id }}">#{{ r.id }}<span class="visually-hidden"> from {{ r.requester.name }}</span></a></th>
+        <td>{{ r.requester.name }}</td>
+        <td>{{ r.resource.name }}</td>
+        <td>{{ m.sensitivity_tag(r.resource.sensitivity) }}</td>
+        <td>{{ r.role.value|capitalize }}</td>
+        <td>{{ r.hours|duration }}</td>
+        <td>{{ m.time(r.created_at) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="lead">Nothing is waiting for you.</p>
+{% endif %}
+{% endblock %}

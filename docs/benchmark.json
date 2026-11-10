@@ -1,0 +1,42 @@
+{
+  "machine": "AMD64 Family 25 Model 116 Stepping 1, AuthenticAMD, 16 logical CPUs, Windows 11",
+  "python": "3.14.10 (tags/v3.14.10:b703b2c, Oct 25 2026, 17:36:52) [MSC v.1944 64 bit (AMD64)]",
+  "results": [
+    {
+      "path": "In-process `AccessService.check`",
+      "checks": 20000,
+      "p50_ms": 0.0096,
+      "p95_ms": 0.0204,
+      "p99_ms": 0.0355,
+      "max_ms": 0.9577,
+      "per_second": 85822.58155790738
+    },
+    {
+      "path": "HTTP, 1 worker, 1 client",
+      "checks": 5000,
+      "p50_ms": 0.9725,
+      "p95_ms": 2.5137,
+      "p99_ms": 3.2894,
+      "max_ms": 22.1363,
+      "per_second": 825.8115254018238
+    },
+    {
+      "path": "HTTP, 1 worker, 8 clients",
+      "checks": 20000,
+      "p50_ms": 6.4778,
+      "p95_ms": 14.0204,
+      "p99_ms": 16.4075,
+      "max_ms": 24.8305,
+      "per_second": 1051.9373556583964
+    },
+    {
+      "path": "HTTP, 4 workers, 8 clients",
+      "checks": 20000,
+      "p50_ms": 2.1865,
+      "p95_ms": 3.8144,
+      "p99_ms": 4.8487,
+      "max_ms": 12.7481,
+      "per_second": 3389.2758735769567
+    }
+  ]
+}

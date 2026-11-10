@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Sign in</h1>
+<p class="lead">Ask for temporary access to company systems, approve requests from your team and see who has access to what.</p>
+<form method="post" action="/signin" novalidate>
+  {{ m.csrf(csrf_token) }}
+  <input type="hidden" name="next" value="{{ next_url }}">
+  {% set user_error = errors.get("user_id") %}
+  <div class="field{% if user_error %} field-error{% endif %}">
+    <fieldset class="fieldset" aria-describedby="user-hint{% if user_error %} user_id-error{% endif %}">
+      <legend class="legend">Who are you?</legend>
+      <div id="user-hint" class="hint">This demo has no passwords. A real deployment sits behind your company's single sign-on.</div>
+      {{ m.error_message(errors, "user_id", "user_id") }}
+      <div class="radios">
+        {% for person in people %}
+        <div class="radio">
+          <input class="radio-input" type="radio" id="user-{{ person.id }}" name="user_id" value="{{ person.id }}" aria-describedby="user-{{ person.id }}-hint">
+          <label class="radio-label" for="user-{{ person.id }}">{{ person.name }}</label>
+          <div id="user-{{ person.id }}-hint" class="hint radio-hint">{{ person.title }}, {{ person.team }}{% if person.is_security %} (security team){% endif %}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </fieldset>
+  </div>
+  <button type="submit" class="button">Sign in</button>
+</form>
+<h2>Things to try</h2>
+<ul class="list-bullet">
+  <li>Sign in as <strong>Alice Chen</strong> and ask for access to the production database.</li>
+  <li>Sign in as <strong>Bob Singh</strong>, her manager, and approve it. Then sign in as <strong>Frank Moreau</strong>, the owner.</li>
+  <li>Sign in as <strong>Dan Okafor</strong> from security to check the tamper-evident audit log.</li>
+</ul>
+{% endblock %}

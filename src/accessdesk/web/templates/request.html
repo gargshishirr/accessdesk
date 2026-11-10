@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block content %}
+<h1><span class="caption">Request #{{ r.id }}</span> {{ r.resource.name }}: {{ r.role.value }} access</h1>
+<p>{{ m.status_tag(r.status) }}</p>
+<dl class="summary">
+  <div><dt>Requested by</dt><dd>{{ r.requester.name }}, {{ r.requester.title }}</dd></div>
+  <div><dt>Access</dt><dd>{{ r.role.value|capitalize }}. {{ ROLE_DESCRIPTIONS[r.role] }}</dd></div>
+  <div><dt>Sensitivity</dt><dd>{{ m.sensitivity_tag(r.resource.sensitivity) }}</dd></div>
+  <div><dt>Duration</dt><dd>{{ r.hours|duration }}</dd></div>
+  <div><dt>Reason given</dt><dd class="prewrap">{{ r.justification }}</dd></div>
+  <div><dt>Submitted</dt><dd>{{ m.time(r.created_at) }}</dd></div>
+  {% if r.decided_at %}
+  <div><dt>Decided</dt><dd>{{ m.time(r.decided_at) }}</dd></div>
+  {% endif %}
+</dl>
+
+{% if r.grant %}
+{% set g = r.grant %}
+<h2>Access</h2>
+{% if g.active_at(now) %}
+<p>Active until {{ m.time(g.expires_at) }} ({{ remaining(g.expires_at, now) }}).</p>
+{% if user.id == g.user.id %}
+<form method="post" action="/grants/{{ g.id }}/release">
+  {{ m.csrf(csrf_token) }}
+  <button type="submit" class="button button-secondary">Give access back now</button>
+</form>
+{% endif %}
+{% else %}
+<p>Ended {{ m.time(g.ended_at or g.expires_at) }}: {{ m.grant_end(g, names)|trim }}.</p>
+{% endif %}
+{% endif %}
+
+<h2>Approvals</h2>
+{% if page.slots %}
+<ol class="steps">
+  {% for slot in page.slots %}
+  <li class="step">
+    <h3 class="step-title">{{ APPROVER_LABELS[slot.kind] }}</h3>
+    {% if slot.approval %}
+    <p>{{ "Approved" if slot.approval.verdict == "approve" else "Denied" }} by {{ slot.approval.approver.name }} on {{ m.time(slot.approval.created_at) }}</p>
+    {% if slot.approval.comment %}
+    <p class="comment">“{{ slot.approval.comment }}”</p>
+    {% endif %}
+    {% elif r.status.value == "pending" %}
+    <p>Waiting for a decision.</p>
+    {% else %}
+    <p>Not needed.</p>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<p>No approvals were needed.</p>
+{% endif %}
+
+<h2>Why this route</h2>
+<ul class="list-bullet">
+  {% for reason in r.reasons %}
+  <li>{{ REASON_TEXT[reason] }}{% if reason.value == "sod_conflict" and r.detail %} Rule: {{ r.detail }}{% endif %}</li>
+  {% endfor %}
+</ul>
+
+{% if page.my_slot %}
+<h2 id="decide">Your decision</h2>
+<p>You are deciding as the {{ APPROVER_LABELS[page.my_slot]|lower }}.</p>
+<form method="post" action="/requests/{{ r.id }}/decision" novalidate>
+  {{ m.csrf(csrf_token) }}
+  <input type="hidden" name="version" value="{{ r.version }}">
+  {% set decision_error = errors.get("decision") %}
+  <div class="field{% if decision_error %} field-error{% endif %}">
+    <fieldset class="fieldset"{% if decision_error %} aria-describedby="decision-error"{% endif %}>
+      <legend class="legend">Do you approve this request?</legend>
+      {{ m.error_message(errors, "decision", "decision") }}
+      <div class="radios radios-inline">
+        <div class="radio">
+          <input class="radio-input" type="radio" id="decision-approve" name="decision" value="approve"{% if form.get("decision") == "approve" %} checked{% endif %}>
+          <label class="radio-label" for="decision-approve">Approve</label>
+        </div>
+        <div class="radio">
+          <input class="radio-input" type="radio" id="decision-deny" name="decision" value="deny"{% if form.get("decision") == "deny" %} checked{% endif %}>
+          <label class="radio-label" for="decision-deny">Deny</label>
+        </div>
+      </div>
+    </fieldset>
+  </div>
+  {% set comment_error = errors.get("comment") %}
+  <div class="field{% if comment_error %} field-error{% endif %}">
+    <label class="label" for="comment">Comment</label>
+    <div id="comment-hint" class="hint">Required if you deny. {{ r.requester.name }} will see it.</div>
+    {{ m.error_message(errors, "comment", "comment") }}
+    <textarea class="textarea{% if comment_error %} input-error{% endif %}" id="comment" name="comment" rows="3" aria-describedby="comment-hint{% if comment_error %} comment-error{% endif %}"{% if comment_error %} aria-invalid="true"{% endif %}>{{ form.get("comment", "") }}</textarea>
+  </div>
+  <button type="submit" class="button">Submit decision</button>
+</form>
+{% endif %}
+
+{% if page.can_cancel %}
+<h2>Changed your mind?</h2>
+<form method="post" action="/requests/{{ r.id }}/cancel">
+  {{ m.csrf(csrf_token) }}
+  <input type="hidden" name="version" value="{{ r.version }}">
+  <button type="submit" class="button button-secondary">Cancel this request</button>
+</form>
+{% endif %}
+{% endblock %}

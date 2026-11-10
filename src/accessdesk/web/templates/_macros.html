@@ -1,0 +1,21 @@
+{% macro error_message(errors, field, id) %}
+{% if errors.get(field) %}
+<p id="{{ id }}-error" class="error-message"><span class="visually-hidden">Error:</span> {{ errors[field] }}</p>
+{% endif %}
+{% endmacro %}
+
+{% macro status_tag(status) %}<strong class="tag tag-{{ status.value }}">{{ STATUS_LABELS[status.value] }}</strong>{% endmacro %}
+
+{% macro sensitivity_tag(sensitivity) %}<strong class="tag tag-{{ sensitivity.value }}">{{ sensitivity.value|capitalize }}</strong>{% endmacro %}
+
+{% macro csrf(token) %}<input type="hidden" name="csrf_token" value="{{ token }}">{% endmacro %}
+
+{% macro time(ts) %}<time datetime="{{ ts|iso }}">{{ ts|when }}</time>{% endmacro %}
+
+{% macro grant_end(grant, names, capital=false) %}
+{% set how = grant.end_reason.value if grant.end_reason else "expired" %}
+{% if how == "expired" %}{{ "Expired" if capital else "expired" }}
+{%- elif how == "released" %}{{ "Given back early" if capital else "given back early" }}
+{%- else %}{{ "Removed" if capital else "removed" }} by {{ names.get(grant.ended_by, grant.ended_by) }}{% if grant.end_note %}: “{{ grant.end_note }}”{% endif %}
+{%- endif %}
+{% endmacro %}
