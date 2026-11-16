@@ -85,6 +85,16 @@ the hash chain and exits with code 1 if it is broken. To run several workers, fi
 `ACCESSDESK_SECRET_KEY` and `ACCESSDESK_API_KEY` so every worker shares them, then run
 `uvicorn accessdesk.web.app:create_app --factory --workers 4`.
 
+### Deploy to Render
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/gargshishirr/accessdesk)
+
+[`render.yaml`](render.yaml) runs AccessDesk as a public demo on the free plan, with secure cookies and HSTS
+on and a generated session secret and API key (shown in the service's **Environment** tab). Free services
+have no persistent disk, so the database starts again with fresh demo data whenever the service restarts or
+wakes up; they also sleep after 15 idle minutes and take about a minute to wake. For real use, add a
+[persistent disk](https://render.com/docs/disks) and point `ACCESSDESK_DB` at it.
+
 ## How it works
 
 ```mermaid
@@ -193,6 +203,7 @@ src/accessdesk/
   web/           FastAPI pages, JSON API, security, metrics, templates and CSS
 tests/           unit, property, web, API, CLI and browser tests
 scripts/         benchmark and screenshots
+render.yaml      one-click public demo on Render
 ```
 
 ## Limitations and next steps

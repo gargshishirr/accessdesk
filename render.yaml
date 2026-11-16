@@ -1,0 +1,18 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Runs AccessDesk as a public demo on Render's free plan. Free services have no persistent disk, so the
+# SQLite database starts again with fresh demo data whenever the service restarts or wakes from sleep.
+services:
+  - type: web
+    name: accessdesk
+    runtime: python
+    plan: free
+    buildCommand: pip install .
+    startCommand: python -m accessdesk serve --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: ACCESSDESK_SECURE_COOKIES
+        value: "true"
+      - key: ACCESSDESK_SECRET_KEY
+        generateValue: true
+      - key: ACCESSDESK_API_KEY
+        generateValue: true
