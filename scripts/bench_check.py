@@ -137,6 +137,7 @@ def server_process(db_path: str, workers: int) -> Iterator[int]:
         "ACCESSDESK_API_KEY": API_KEY,
         "ACCESSDESK_SECRET_KEY": "bench-secret",
         "ACCESSDESK_SWEEP_SECONDS": "0",
+        "ACCESSDESK_API_RATE_LIMIT": "0",  # measure the check itself, not the rate limit
     }
     windows = sys.platform == "win32"
     group = subprocess.CREATE_NEW_PROCESS_GROUP if windows else 0

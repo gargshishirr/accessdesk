@@ -117,8 +117,9 @@ def _replace(slots: list[ApproverKind], old: ApproverKind, new: ApproverKind) ->
 
 
 def eligible_kinds(approver: User, requester: User, resource: Resource) -> frozenset[ApproverKind]:
-    """Which approval slots ``approver`` may fill for this request. Never the requester themselves."""
-    if approver.id == requester.id:
+    """Which approval slots ``approver`` may fill for this request. Never the requester themselves,
+    and never someone who has left the directory."""
+    if approver.id == requester.id or not approver.active:
         return frozenset()
     kinds: set[ApproverKind] = set()
     if requester.manager_id is not None and requester.manager_id == approver.id:

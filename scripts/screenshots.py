@@ -44,7 +44,11 @@ def main() -> int:
         service = AccessService(db, ManualClock(START))
         seed_activity(service)
         settings = Settings(
-            db_path=db.path, secret_key="screenshot-secret-" * 2, api_key="k", sweep_seconds=0
+            db_path=db.path,
+            secret_key="screenshot-secret-" * 2,
+            api_keys=("k",),
+            sweep_seconds=0,
+            signin_rate_limit=0,
         )
         with background_server(create_app(settings, service=service)) as base, sync_playwright() as pw:
             browser = pw.chromium.launch(channel=args.channel)

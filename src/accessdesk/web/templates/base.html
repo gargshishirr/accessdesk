@@ -36,6 +36,11 @@
     </ul>
   </nav>
   {% endif %}
+  {% if demo_mode %}
+  <div class="demo-banner">
+    <div class="container"><p><strong>Demo:</strong> anyone can sign in as anyone. Do not use real data.</p></div>
+  </div>
+  {% endif %}
 </header>
 <main id="main" class="container main" tabindex="-1">
   {% if flash %}
@@ -61,7 +66,9 @@
   <div class="container">
     <ul class="footer-links">
       <li><a href="/accessibility">Accessibility statement</a></li>
+      {% if demo_mode %}
       <li><a href="/api/docs">API documentation</a></li>
+      {% endif %}
     </ul>
   </div>
 </footer>

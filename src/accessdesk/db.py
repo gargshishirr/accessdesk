@@ -7,10 +7,13 @@ a grant, and the audit hash chain always grows in a single line.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+
+log = logging.getLogger("accessdesk")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -20,7 +23,8 @@ CREATE TABLE IF NOT EXISTS users (
     team        TEXT NOT NULL,
     title       TEXT NOT NULL DEFAULT '',
     manager_id  TEXT REFERENCES users(id),
-    is_security INTEGER NOT NULL DEFAULT 0
+    is_security INTEGER NOT NULL DEFAULT 0,
+    active      INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS resources (
@@ -31,7 +35,8 @@ CREATE TABLE IF NOT EXISTS resources (
     sensitivity        TEXT NOT NULL CHECK (sensitivity IN ('low', 'medium', 'high', 'critical')),
     max_hours          INTEGER NOT NULL CHECK (max_hours > 0),
     roles              TEXT NOT NULL,
-    auto_approve_teams TEXT NOT NULL DEFAULT ''
+    auto_approve_teams TEXT NOT NULL DEFAULT '',
+    active             INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS sod_rules (
@@ -98,7 +103,31 @@ CREATE TABLE IF NOT EXISTS audit_log (
     prev_hash TEXT NOT NULL,
     hash      TEXT NOT NULL
 );
+
+-- Signed-in sessions. The browser cookie holds a random session id; only its SHA-256 is stored here,
+-- so signing out (or leaving the directory) ends a session at once, even if someone copied the cookie.
+CREATE TABLE IF NOT EXISTS sessions (
+    id_hash    TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id),
+    method     TEXT NOT NULL CHECK (method IN ('sso', 'demo')),
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS ix_sessions_expiry ON sessions(expires_at);
+
+-- Facts about the database itself, such as whether it has ever been used with single sign-on.
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
+
+# Columns added after the first release. Older databases get them on start-up.
+ADDED_COLUMNS = (
+    ("users", "active", "INTEGER NOT NULL DEFAULT 1"),
+    ("resources", "active", "INTEGER NOT NULL DEFAULT 1"),
+)
 
 
 class Database:
@@ -114,6 +143,25 @@ class Database:
         with self.connection() as conn:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        # One write transaction, so several workers starting together cannot add a column twice.
+        with self.write() as conn:
+            for table, column, definition in ADDED_COLUMNS:
+                present = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+                if column not in present:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        try:
+            with self.write() as conn:
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email ON users(email COLLATE NOCASE)"
+                )
+        except sqlite3.IntegrityError:
+            # Sign-in refuses an email address that matches more than one person, so this stays safe.
+            log.warning(
+                "Two or more people share an email address. Fix the directory so each email is unique."
+            )
 
     def _open(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, timeout=10, isolation_level=None, check_same_thread=False)
@@ -140,10 +188,11 @@ class Database:
             conn.execute("BEGIN IMMEDIATE")
             try:
                 yield conn
+                conn.execute("COMMIT")
             except BaseException:
-                conn.execute("ROLLBACK")
+                if conn.in_transaction:  # also when COMMIT itself failed, e.g. on a foreign key
+                    conn.execute("ROLLBACK")
                 raise
-            conn.execute("COMMIT")
 
     def close(self) -> None:
         with self._lock:

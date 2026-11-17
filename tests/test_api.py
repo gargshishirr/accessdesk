@@ -4,6 +4,7 @@ import time
 
 from fastapi.testclient import TestClient
 
+from accessdesk import __version__
 from accessdesk.clock import ManualClock
 from accessdesk.config import Settings
 from accessdesk.service import AccessService
@@ -70,11 +71,12 @@ def test_audit_verify_reports_tampering(client: TestClient, service: AccessServi
 
 
 def test_health_metrics_and_openapi(client: TestClient) -> None:
-    assert client.get("/healthz").json() == {"status": "ok", "version": "1.0.0"}
+    assert client.get("/healthz").json() == {"status": "ok", "version": __version__}
     client.get("/api/v1/check", params={"user": "alice", "resource": "prod-db"}, headers=KEY)
     client.get("/requests/42")
 
-    metrics = client.get("/metrics")
+    assert client.get("/metrics").status_code == 401  # metrics need a key too
+    metrics = client.get("/metrics", headers={"Authorization": f"Bearer {API_KEY}"})  # as Prometheus sends it
     assert metrics.headers["content-type"].startswith("text/plain")
     body = metrics.text
     assert 'accessdesk_access_checks_total{allowed="false",reason="no_active_grant"} 1.0' in body
@@ -90,7 +92,7 @@ def test_health_metrics_and_openapi(client: TestClient) -> None:
 def test_background_sweeper_ends_expired_grants(service: AccessService, clock: ManualClock) -> None:
     grant_id = service.submit("alice", "design-wiki", "viewer", 1, WHY).grant_id
     clock.advance(3600)
-    settings = Settings(db_path=service.db.path, secret_key="s" * 32, api_key=API_KEY, sweep_seconds=0.05)
+    settings = Settings(db_path=service.db.path, secret_key="s" * 32, api_keys=(API_KEY,), sweep_seconds=0.05)
     with TestClient(create_app(settings, service=service)) as client:
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
@@ -99,4 +101,4 @@ def test_background_sweeper_ends_expired_grants(service: AccessService, clock: M
                 break
             time.sleep(0.05)
         assert [(g.id, g.end_reason) for g in ended] == [(grant_id, "expired")]
-        assert "accessdesk_grants_expired_total 1.0" in client.get("/metrics").text
+        assert "accessdesk_grants_expired_total 1.0" in client.get("/metrics", headers=KEY).text

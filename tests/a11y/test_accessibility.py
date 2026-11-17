@@ -7,6 +7,7 @@ to use an installed browser. The tests skip if no browser can start.
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -18,7 +19,7 @@ from axe_playwright_python.sync_playwright import Axe
 from playwright.sync_api import Browser, Page, sync_playwright
 
 from accessdesk.clock import ManualClock
-from accessdesk.config import Settings
+from accessdesk.config import OidcSettings, Settings
 from accessdesk.db import Database
 from accessdesk.seed import seed_activity, seed_directory
 from accessdesk.service import AccessService
@@ -47,7 +48,13 @@ def live_server(folder: Path) -> Iterator[str]:
     seed_directory(db)
     service = AccessService(db, ManualClock(START))
     seed_activity(service)
-    settings = Settings(db_path=db.path, secret_key="a11y-secret-" * 4, api_key=API_KEY, sweep_seconds=0)
+    settings = Settings(
+        db_path=db.path,
+        secret_key="a11y-secret-" * 4,
+        api_keys=(API_KEY,),
+        sweep_seconds=0,
+        signin_rate_limit=0,  # these tests sign in dozens of times a minute from one address
+    )
     with background_server(create_app(settings, service=service)) as url:
         yield url
 
@@ -144,6 +151,14 @@ def assert_no_violations(page: Page, label: str) -> None:
     assert results.violations_count == 0, f"{label}\n{results.generate_report()}"
 
 
+def assert_accessible_at_both_widths(page: Page) -> None:
+    assert_no_violations(page, f"{page.url} at {DESKTOP['width']}px")
+    page.set_viewport_size(NARROW)  # type: ignore[arg-type]
+    overflow = page.evaluate("document.documentElement.scrollWidth - window.innerWidth")
+    assert overflow <= 0, f"{page.url} scrolls sideways by {overflow}px at 320px wide"
+    assert_no_violations(page, f"{page.url} at {NARROW['width']}px")
+
+
 @pytest.mark.parametrize(("user", "go"), [(s[1], s[2]) for s in STATES], ids=[s[0] for s in STATES])
 def test_every_page_and_state_passes_axe_and_reflows(
     page: Page, server: str, user: str | None, go: Any
@@ -151,12 +166,37 @@ def test_every_page_and_state_passes_axe_and_reflows(
     if user:
         sign_in(page, server, user)
     go(page, server)
-    assert_no_violations(page, f"{page.url} at {DESKTOP['width']}px")
+    assert_accessible_at_both_widths(page)
 
-    page.set_viewport_size(NARROW)  # type: ignore[arg-type]
-    overflow = page.evaluate("document.documentElement.scrollWidth - window.innerWidth")
-    assert overflow <= 0, f"{page.url} scrolls sideways by {overflow}px at 320px wide"
-    assert_no_violations(page, f"{page.url} at {NARROW['width']}px")
+
+@pytest.fixture(scope="module")
+def sso_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+    """The app in single sign-on mode. These pages never contact the identity provider."""
+    db = Database(str(tmp_path_factory.mktemp("a11y-sso") / "a11y.db"))
+    seed_directory(db)
+    oidc = OidcSettings("https://idp.invalid", "client-id", "client-secret", ("example.com",))
+    settings = Settings(
+        db_path=db.path,
+        secret_key="a11y-secret-" * 4,
+        api_keys=(),
+        sweep_seconds=0,
+        public_url="http://127.0.0.1:9",
+        oidc=oidc,
+    )
+    with background_server(create_app(settings, service=AccessService(db, ManualClock(START)))) as url:
+        yield url
+
+
+SSO_STATES = [
+    ("sso-sign-in", "/signin?next=/approvals"),
+    ("sso-sign-in-problem", "/auth/callback?error=access_denied&state=unknown"),
+]
+
+
+@pytest.mark.parametrize("path", [s[1] for s in SSO_STATES], ids=[s[0] for s in SSO_STATES])
+def test_single_sign_on_pages_pass_axe_and_reflow(page: Page, sso_server: str, path: str) -> None:
+    page.goto(sso_server + path)
+    assert_accessible_at_both_widths(page)
 
 
 def focused(page: Page, selector: str) -> dict[str, Any]:
@@ -216,7 +256,13 @@ def keyboard_sign_out(page: Page, base: str) -> None:
 
 def notice_has_focus(page: Page, text: str) -> None:
     """After a form post, focus must land on the result message so screen readers read it out."""
-    page.wait_for_function("document.activeElement && document.activeElement.classList.contains('notice')")
+    # Poll with page.evaluate: wait_for_function evaluates strings in the page, which the strict CSP forbids.
+    deadline = time.monotonic() + 10
+    while not page.evaluate(
+        "!!document.activeElement && document.activeElement.classList.contains('notice')"
+    ):
+        assert time.monotonic() < deadline, "focus never moved to the result message"
+        page.wait_for_timeout(50)
     message = page.evaluate("document.activeElement.innerText")
     assert text in message, message
 

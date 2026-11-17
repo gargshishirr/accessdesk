@@ -37,7 +37,7 @@ def service(db: Database, clock: ManualClock) -> AccessService:
 @pytest.fixture
 def app(service: AccessService) -> FastAPI:
     settings = Settings(
-        db_path=service.db.path, secret_key="test-secret-" * 4, api_key=API_KEY, sweep_seconds=0
+        db_path=service.db.path, secret_key="test-secret-" * 4, api_keys=(API_KEY,), sweep_seconds=0
     )
     return create_app(settings, service=service)
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse, Response
 
 from accessdesk.models import APPROVER_LABELS, REASON_TEXT, Outcome, RequestStatus, Resource, User
@@ -17,8 +17,8 @@ from accessdesk.service import (
     RequestPage,
     ValidationFailed,
 )
-from accessdesk.web.security import csrf_protect, safe_next
-from accessdesk.web.ui import current_user, flash, get_metrics, get_service, render, require_user
+from accessdesk.web.security import csrf_protect
+from accessdesk.web.ui import flash, get_metrics, get_service, render, require_user
 
 router = APIRouter(include_in_schema=False)
 CSRF = [Depends(csrf_protect)]
@@ -31,48 +31,6 @@ def see_other(url: str) -> RedirectResponse:
 
 def _version(raw: str) -> int | None:
     return int(raw) if raw.isascii() and raw.isdigit() else None
-
-
-# ----------------------------------------------------------------------------- sign in
-
-
-@router.get("/signin")
-def signin_form(request: Request, next_url: Annotated[str, Query(alias="next")] = "/") -> Response:
-    if current_user(request) is not None:
-        return see_other(safe_next(next_url))
-    people = get_service(request).users()
-    return render(request, "signin.html", "Sign in", people=people, next_url=safe_next(next_url))
-
-
-@router.post("/signin", dependencies=CSRF)
-def signin(
-    request: Request, user_id: FormText = "", next_url: Annotated[str, Form(alias="next")] = "/"
-) -> Response:
-    service = get_service(request)
-    user = service.user(user_id) if user_id else None
-    if user is None:
-        people = service.users()
-        return render(
-            request,
-            "signin.html",
-            "Sign in",
-            status_code=422,
-            people=people,
-            next_url=safe_next(next_url),
-            errors={"user_id": "Choose who you want to sign in as"},
-            error_anchors={"user_id": f"user-{people[0].id}"},
-        )
-    # A fresh session (and CSRF token) on every sign-in prevents session fixation.
-    request.session.clear()
-    request.session["user_id"] = user.id
-    return see_other(safe_next(next_url))
-
-
-@router.post("/signout", dependencies=CSRF)
-def signout(request: Request) -> Response:
-    request.session.clear()
-    flash(request, "success", "You have signed out.")
-    return see_other("/signin")
 
 
 # ----------------------------------------------------------------------------- my access
@@ -119,7 +77,7 @@ def new_request(request: Request, resource: str = "") -> Response:
     if not resource:
         return _catalog(request, user)
     chosen = service.resource(resource)
-    if chosen is None:
+    if chosen is None or not chosen.active:
         raise NotFound("That resource was not found.")
     return _request_form(request, user, chosen)
 
@@ -138,7 +96,7 @@ def submit_request(
         result = service.submit(user.id, resource_id, role, hours, justification)
     except ValidationFailed as exc:
         chosen = service.resource(resource_id)
-        if chosen is None:
+        if chosen is None or not chosen.active:
             return _catalog(request, user, errors={"resource_id": exc.errors["resource_id"]}, status_code=422)
         form = {"role": role, "hours": hours, "justification": justification}
         return _request_form(request, user, chosen, form=form, errors=exc.errors, status_code=422)
@@ -169,7 +127,7 @@ def _catalog(
         status_code=status_code,
         user=user,
         active_nav="new",
-        resources=get_service(request).resources(),
+        resources=get_service(request).resources(active_only=True),
         errors=errors or {},
         error_anchors={"resource_id": "catalog"},
     )
@@ -371,4 +329,5 @@ def audit_page(request: Request) -> Response:
 
 @router.get("/accessibility")
 def accessibility(request: Request) -> Response:
-    return render(request, "accessibility.html", "Accessibility statement")
+    hours = request.app.state.settings.session_hours
+    return render(request, "accessibility.html", "Accessibility statement", session_hours=hours)

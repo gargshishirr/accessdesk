@@ -44,6 +44,18 @@ class Metrics:
         self.sweep_errors = Counter(
             "accessdesk_sweep_errors", "Expiry sweeps that failed.", registry=self.registry
         )
+        self.signins = Counter(
+            "accessdesk_signins",
+            "Sign-in attempts, by method and result.",
+            ["method", "result"],
+            registry=self.registry,
+        )
+        self.rate_limited = Counter(
+            "accessdesk_rate_limited",
+            "Requests refused by a rate limit, by limit.",
+            ["limit"],
+            registry=self.registry,
+        )
 
     def exposition(self) -> bytes:
         output: bytes = generate_latest(self.registry)

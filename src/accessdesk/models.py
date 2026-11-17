@@ -124,6 +124,8 @@ class User:
     title: str = ""
     manager_id: str | None = None
     is_security: bool = False
+    # People who left are kept (for the audit history) but switched off: no sign-in, no approvals.
+    active: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +138,8 @@ class Resource:
     max_hours: int
     roles: tuple[Role, ...]
     auto_approve_teams: frozenset[str] = frozenset()
+    # Retired resources stay in the history but leave the catalogue.
+    active: bool = True
 
 
 @dataclass(frozen=True, slots=True)
