@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ heading }}</h1>
+{% for paragraph in paragraphs %}
+<p{% if loop.first %} class="lead"{% endif %}>{{ paragraph }}</p>
+{% endfor %}
+<p><a href="/signin">Try signing in again</a></p>
+{% endblock %}

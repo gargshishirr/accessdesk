@@ -59,12 +59,16 @@ def get_metrics(request: Request) -> Metrics:
 
 
 def current_user(request: Request) -> User | None:
-    user_id = request.session.get("user_id")
-    if not user_id:
-        return None
-    user = get_service(request).user(user_id)
+    """The signed-in person: a live session in the database for someone still in the directory."""
+    if hasattr(request.state, "user"):
+        cached: User | None = request.state.user
+        return cached
+    session_id = request.session.get("sid")
+    method = "sso" if request.app.state.settings.sso else "demo"
+    user = get_service(request).session_user(session_id, method) if isinstance(session_id, str) else None
     if user is None:
-        request.session.pop("user_id", None)
+        request.session.pop("sid", None)  # signed out elsewhere, expired, or removed from the directory
+    request.state.user = user
     return user
 
 
@@ -179,6 +183,7 @@ def render(
     values: dict[str, Any] = {
         "title": title,
         "user": user,
+        "demo_mode": not request.app.state.settings.sso,
         "errors": {},
         "error_anchors": {},
         "form": {},
@@ -189,7 +194,7 @@ def render(
         "waiting": len(service.pending_for(user.id)) if user else 0,
         "names": {u.id: u.name for u in service.users()},
         "can_review": user is not None
-        and (user.is_security or any(r.owner_id == user.id for r in service.resources())),
+        and (user.is_security or any(r.owner_id == user.id for r in service.resources(active_only=True))),
     }
     values.update(context)
     return templates.TemplateResponse(request, template, values, status_code=status_code)

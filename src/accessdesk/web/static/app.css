@@ -130,6 +130,9 @@ main:focus:not(:focus-visible) { outline: none; }
   font-size: 1rem;
 }
 
+.demo-banner { background: #fff7bf; color: var(--text); border-top: 1px solid var(--text); }
+.demo-banner p { margin: 0; padding-top: 0.5rem; padding-bottom: 0.5rem; }
+
 .main { padding-top: 1.5rem; padding-bottom: 3rem; }
 
 .site-footer { border-top: 1px solid var(--border); background: var(--panel); padding: 1.5rem 0; margin-top: 2rem; }
@@ -294,7 +297,7 @@ code { font-family: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace; f
 }
 
 @media (forced-colors: active) {
-  .tag, .badge, .notice, .error-summary, .panel { border: 2px solid CanvasText; }
+  .tag, .badge, .notice, .error-summary, .panel, .demo-banner { border: 2px solid CanvasText; }
   .button { border: 2px solid ButtonText; }
   .site-header { border-bottom-color: CanvasText; }
   a:focus-visible, .button:focus-visible, .link-button:focus-visible { outline: 3px solid Highlight; }

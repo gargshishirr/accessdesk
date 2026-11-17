@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from urllib.parse import quote
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
@@ -19,12 +19,14 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from accessdesk import __version__
 from accessdesk.clock import Clock, SystemClock
-from accessdesk.config import Settings
+from accessdesk.config import ConfigError, Settings
 from accessdesk.db import Database
+from accessdesk.oidc import OidcClient
 from accessdesk.service import AccessError, AccessService
-from accessdesk.web import api, pages
+from accessdesk.web import api, auth, pages
 from accessdesk.web.metrics import Metrics, MetricsMiddleware
-from accessdesk.web.security import CsrfFailed, SecurityHeaders
+from accessdesk.web.ratelimit import Limits
+from accessdesk.web.security import ApiKeys, CsrfFailed, SecurityHeaders, redact_access_log, require_api_key
 from accessdesk.web.ui import WEB_DIR, SignInRequired, render, templates
 
 log = logging.getLogger("accessdesk")
@@ -36,7 +38,11 @@ ERROR_HEADINGS = {
     405: "That action is not available here",
     409: "That changed while you were looking at it",
     422: "There is a problem with that request",
+    429: "Too many requests",
 }
+# Set in the database the first time it runs with single sign-on. From then on it refuses demo mode, so
+# losing the single sign-on settings can never open a real database to the demo person picker.
+SSO_LATCH = "sign_in"
 
 
 def _is_machine_path(request: Request) -> bool:
@@ -44,19 +50,25 @@ def _is_machine_path(request: Request) -> bool:
     return path.startswith("/api/") or path in {"/healthz", "/metrics"}
 
 
-def _error_page(request: Request, status: int, message: str) -> Response:
+def _error_page(
+    request: Request, status: int, message: str, headers: Mapping[str, str] | None = None
+) -> Response:
     heading = ERROR_HEADINGS.get(status, "Sorry, something went wrong")
-    return render(request, "error.html", heading, status_code=status, heading=heading, message=message)
+    response = render(request, "error.html", heading, status_code=status, heading=heading, message=message)
+    response.headers.update(headers or {})
+    return response
 
 
 async def sweep_expired(service: AccessService, metrics: Metrics, every: float) -> None:
-    """End grants as they expire. Checks never depend on this: expired grants already fail closed."""
+    """End grants as they expire, and forget expired sessions. Checks never depend on this: expired grants
+    already fail closed, and expired sessions are already refused."""
     while True:
         try:
             ended = await asyncio.to_thread(service.expire_due)
             if ended:
                 metrics.expired.inc(ended)
                 log.info("expired %d grant(s)", ended)
+            await asyncio.to_thread(service.purge_sessions)
         except Exception:
             metrics.sweep_errors.inc()
             log.exception("expiry sweep failed")
@@ -64,11 +76,26 @@ async def sweep_expired(service: AccessService, metrics: Metrics, every: float) 
 
 
 def create_app(
-    settings: Settings | None = None, *, clock: Clock | None = None, service: AccessService | None = None
+    settings: Settings | None = None,
+    *,
+    clock: Clock | None = None,
+    service: AccessService | None = None,
+    oidc: OidcClient | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     service = service or AccessService(Database(settings.db_path), clock or SystemClock())
+    if settings.oidc is not None:
+        service.set_meta(SSO_LATCH, "sso")
+        service.end_sessions_except("sso")  # nobody stays signed in from the demo person picker
+        oidc = oidc or OidcClient(settings.oidc, settings.redirect_uri)
+    elif service.meta(SSO_LATCH) == "sso":
+        service.db.close()
+        raise ConfigError(
+            "This database has been used with single sign-on, so AccessDesk will not open it in demo mode "
+            "(anyone could sign in as anyone). Set the ACCESSDESK_OIDC_* settings again."
+        )
     metrics = Metrics()
+    redact_access_log()
 
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -88,7 +115,9 @@ def create_app(
         title="AccessDesk",
         version=__version__,
         summary="Just-in-time access requests with policy-routed approvals and a tamper-evident audit log.",
-        docs_url="/api/docs",
+        # The interactive docs load scripts from a CDN onto this site's origin. That is fine for the demo,
+        # but a real deployment should not trust a third party with its signed-in pages.
+        docs_url=None if settings.sso else "/api/docs",
         redoc_url=None,
         openapi_url="/api/openapi.json",
         lifespan=lifespan,
@@ -96,7 +125,15 @@ def create_app(
     app.state.settings = settings
     app.state.service = service
     app.state.metrics = metrics
+    app.state.oidc = oidc
+    app.state.api_keys = ApiKeys(settings.api_keys)
+    app.state.limits = Limits(
+        signin_per_minute=settings.signin_rate_limit, api_per_minute=settings.api_rate_limit
+    )
 
+    app.include_router(auth.router)
+    # Exactly one way to sign in. With single sign-on, the person picker's form handler does not exist.
+    app.include_router(auth.sso_router if settings.sso else auth.demo_router)
     app.include_router(pages.router)
     app.include_router(api.router)
     app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
@@ -105,7 +142,9 @@ def create_app(
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.secret_key,
-        session_cookie="accessdesk_session",
+        # The __Host- prefix makes browsers refuse the cookie unless it is Secure, for this host only and
+        # for the whole site, so a neighbouring subdomain cannot plant a session.
+        session_cookie="__Host-accessdesk" if settings.secure_cookies else "accessdesk_session",
         max_age=settings.session_hours * 3600,
         same_site="lax",
         https_only=settings.secure_cookies,
@@ -123,7 +162,7 @@ def create_app(
             return JSONResponse({"status": "unavailable"}, status_code=503)
         return JSONResponse({"status": "ok", "version": __version__})
 
-    @app.get("/metrics", include_in_schema=False)
+    @app.get("/metrics", include_in_schema=False, dependencies=[Depends(require_api_key)])
     def prometheus_metrics() -> Response:
         return PlainTextResponse(metrics.exposition(), media_type=CONTENT_TYPE_LATEST)
 
@@ -158,7 +197,7 @@ def create_app(
         message = (
             "Check the web address, or go back to My access." if exc.status_code == 404 else str(exc.detail)
         )
-        return await asyncio.to_thread(_error_page, request, exc.status_code, message)
+        return await asyncio.to_thread(_error_page, request, exc.status_code, message, exc.headers)
 
     @app.exception_handler(RequestValidationError)
     async def on_validation_error(request: Request, exc: RequestValidationError) -> Response:
@@ -185,6 +224,7 @@ def create_app(
                     "so nothing was half-saved."
                 ),
                 "user": None,
+                "demo_mode": False,
                 "errors": {},
                 "error_anchors": {},
                 "form": {},

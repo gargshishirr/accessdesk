@@ -75,6 +75,7 @@ class Reason(StrEnum):
     NO_MANAGER_ESCALATED = "no_manager_escalated"
     REQUESTER_IS_OWNER_ESCALATED = "requester_is_owner_escalated"
     MANAGER_IS_OWNER_ESCALATED = "manager_is_owner_escalated"
+    DIRECTORY_CHANGED_ESCALATED = "directory_changed_escalated"
 
 
 REASON_TEXT = {
@@ -98,6 +99,10 @@ REASON_TEXT = {
     Reason.MANAGER_IS_OWNER_ESCALATED: (
         "The requester's manager also owns this resource, so security approves the owner step "
         "to keep two independent approvers."
+    ),
+    Reason.DIRECTORY_CHANGED_ESCALATED: (
+        "The directory changed while this request was waiting, and nobody else could approve one of its "
+        "steps, so security approves that step instead."
     ),
 }
 
@@ -124,6 +129,8 @@ class User:
     title: str = ""
     manager_id: str | None = None
     is_security: bool = False
+    # People who left are kept (for the audit history) but switched off: no sign-in, no approvals.
+    active: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +143,8 @@ class Resource:
     max_hours: int
     roles: tuple[Role, ...]
     auto_approve_teams: frozenset[str] = frozenset()
+    # Retired resources stay in the history but leave the catalogue.
+    active: bool = True
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import secrets
 import sqlite3
 from dataclasses import dataclass
 from typing import Any
@@ -11,6 +13,7 @@ from accessdesk import audit, policy
 from accessdesk.clock import Clock
 from accessdesk.db import Database
 from accessdesk.models import (
+    KIND_ORDER,
     ApproverKind,
     Decision,
     Draft,
@@ -155,6 +158,7 @@ def _user(row: sqlite3.Row) -> User:
         title=row["title"],
         manager_id=row["manager_id"],
         is_security=bool(row["is_security"]),
+        active=bool(row["active"]),
     )
 
 
@@ -168,7 +172,12 @@ def _resource(row: sqlite3.Row) -> Resource:
         max_hours=row["max_hours"],
         roles=tuple(Role(r) for r in row["roles"].split(",")),
         auto_approve_teams=frozenset(t for t in row["auto_approve_teams"].split(",") if t),
+        active=bool(row["active"]),
     )
+
+
+def session_hash(session_id: str) -> str:
+    return hashlib.sha256(session_id.encode()).hexdigest()
 
 
 class AccessService:
@@ -178,18 +187,32 @@ class AccessService:
 
     # ----------------------------------------------------------------- directory
 
-    def users(self) -> list[User]:
+    def users(self, *, active_only: bool = False) -> list[User]:
+        where = "WHERE active = 1 " if active_only else ""
         with self.db.connection() as conn:
-            return [_user(r) for r in conn.execute("SELECT * FROM users ORDER BY name")]
+            return [_user(r) for r in conn.execute(f"SELECT * FROM users {where}ORDER BY name")]  # noqa: S608
 
     def user(self, user_id: str) -> User | None:
         with self.db.connection() as conn:
             row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         return _user(row) if row else None
 
-    def resources(self) -> list[Resource]:
+    def user_by_email(self, email: str) -> User | None:
+        """The one active person with this email address (any letter case), or None."""
         with self.db.connection() as conn:
-            return [_resource(r) for r in conn.execute("SELECT * FROM resources ORDER BY name")]
+            rows = conn.execute(
+                "SELECT * FROM users WHERE email = ? COLLATE NOCASE AND active = 1 LIMIT 2", (email.strip(),)
+            ).fetchall()
+        # Never guess between two people.
+        return _user(rows[0]) if len(rows) == 1 else None
+
+    def resources(self, *, active_only: bool = False) -> list[Resource]:
+        where = "WHERE active = 1 " if active_only else ""
+        with self.db.connection() as conn:
+            return [
+                _resource(r)
+                for r in conn.execute(f"SELECT * FROM resources {where}ORDER BY name")  # noqa: S608
+            ]
 
     def resource(self, resource_id: str) -> Resource | None:
         with self.db.connection() as conn:
@@ -200,13 +223,68 @@ class AccessService:
         with self.db.connection() as conn:
             return self._sod_rules(conn)
 
+    # ----------------------------------------------------------------- sessions
+
+    def start_session(self, user_id: str, method: str, lifetime_seconds: int) -> str:
+        """Sign someone in. Returns the new session id, which only the browser cookie keeps."""
+        session_id = secrets.token_urlsafe(32)
+        now = self.clock.now()
+        with self.db.write() as conn:
+            user = self._get_active_user(conn, user_id)
+            conn.execute(
+                "INSERT INTO sessions (id_hash, user_id, method, created_at, expires_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (session_hash(session_id), user.id, method, now, now + lifetime_seconds),
+            )
+        return session_id
+
+    def session_user(self, session_id: str, method: str) -> User | None:
+        """The person signed in with this session, if the session is live, was started the way this app
+        signs people in (``sso`` or ``demo``), and the person is still active."""
+        with self.db.connection() as conn:
+            row = conn.execute(
+                "SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id "
+                "WHERE s.id_hash = ? AND s.method = ? AND s.expires_at > ? AND u.active = 1",
+                (session_hash(session_id), method, self.clock.now()),
+            ).fetchone()
+        return _user(row) if row else None
+
+    def end_sessions_except(self, method: str) -> int:
+        """End every session started another way, for example demo sessions once single sign-on is on."""
+        with self.db.write() as conn:
+            return conn.execute("DELETE FROM sessions WHERE method != ?", (method,)).rowcount
+
+    def end_session(self, session_id: str) -> None:
+        with self.db.write() as conn:
+            conn.execute("DELETE FROM sessions WHERE id_hash = ?", (session_hash(session_id),))
+
+    def purge_sessions(self) -> int:
+        """Delete expired sessions. Returns how many."""
+        with self.db.write() as conn:
+            return conn.execute("DELETE FROM sessions WHERE expires_at <= ?", (self.clock.now(),)).rowcount
+
+    # ----------------------------------------------------------------- facts about the database
+
+    def meta(self, key: str) -> str | None:
+        with self.db.connection() as conn:
+            row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return str(row["value"]) if row else None
+
+    def set_meta(self, key: str, value: str) -> None:
+        with self.db.write() as conn:
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+
     # ----------------------------------------------------------------- requests
 
     def submit(
         self, requester_id: str, resource_id: str, role: str, hours: str | int, justification: str
     ) -> SubmitResult:
         with self.db.write() as conn:
-            requester = self._get_user(conn, requester_id)
+            requester = self._get_active_user(conn, requester_id)
             resource, role_, hours_, text = self._validate(conn, resource_id, role, hours, justification)
             now = self.clock.now()
             context = self._context(conn, requester, now)
@@ -381,7 +459,7 @@ class AccessService:
                 {"note": "Enter a reason for removing this access (at least 5 characters)"}
             )
         with self.db.write() as conn:
-            actor = self._get_user(conn, actor_id)
+            actor = self._get_active_user(conn, actor_id)
             grant = self._active_grant(conn, grant_id)
             owner = conn.execute(
                 "SELECT owner_id FROM resources WHERE id = ?", (grant["resource_id"],)
@@ -389,6 +467,107 @@ class AccessService:
             if not (actor.is_security or actor.id == owner):
                 raise Forbidden("Only the resource owner or the security team can remove access.")
             self._end_grant(conn, grant, GrantEnd.REVOKED, actor.id, text[:NOTE_MAX])
+
+    def end_access_in(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        user_id: str | None = None,
+        resource_id: str | None = None,
+        actor: str,
+        note: str,
+    ) -> tuple[int, int]:
+        """End all live access and cancel all pending requests for one person or one resource, inside the
+        caller's write transaction (used when someone leaves or a resource is retired). Every change is
+        audited. Returns (grants ended, requests cancelled)."""
+        if (user_id is None) == (resource_id is None):
+            raise ValueError("give exactly one of user_id and resource_id")
+        now = self.clock.now()
+        if user_id is not None:
+            grant_sql = "SELECT * FROM grants WHERE user_id = ? AND ended_at IS NULL AND expires_at > ?"
+            request_sql = "SELECT * FROM requests WHERE requester_id = ? AND status = 'pending'"
+            key = user_id
+        else:
+            grant_sql = "SELECT * FROM grants WHERE resource_id = ? AND ended_at IS NULL AND expires_at > ?"
+            request_sql = "SELECT * FROM requests WHERE resource_id = ? AND status = 'pending'"
+            key = str(resource_id)
+        grants = conn.execute(grant_sql, (key, now)).fetchall()
+        for grant in grants:
+            self._end_grant(conn, grant, GrantEnd.REVOKED, actor, note)
+        requests = conn.execute(request_sql, (key,)).fetchall()
+        for row in requests:
+            self._finish(conn, row, RequestStatus.CANCELLED, now)
+            audit.append(
+                conn,
+                ts=now,
+                actor=actor,
+                action="request.cancelled",
+                subject=f"request:{row['id']}",
+                details={"note": note},
+            )
+        return len(grants), len(requests)
+
+    def reroute_stuck_steps(self, conn: sqlite3.Connection, *, actor: str) -> int:
+        """Inside the caller's write transaction, after a directory change: an open manager or owner step that
+        nobody can approve any more goes to the security team, as the policy does for new requests. That
+        happens when the manager left, the requester now owns the resource, the manager and the owner are now
+        the same person, or that person already approved another step. Returns how many requests changed."""
+        now = self.clock.now()
+        users, resources = self._directory(conn)
+        changed = 0
+        for row in conn.execute("SELECT * FROM requests WHERE status = 'pending' ORDER BY id").fetchall():
+            requester, resource = users[row["requester_id"]], resources[row["resource_id"]]
+            manager = users.get(requester.manager_id or "")
+            if manager is not None and not manager.active:
+                manager = None
+            owner = users.get(resource.owner_id)
+            required = list(self._required(row))
+            filled = self._filled(conn, row["id"])
+            approvers = {who for _, who in filled}
+            still_open = policy.open_slots(required, filled)
+            notes: list[Reason] = []
+
+            manager_open = ApproverKind.MANAGER in still_open
+            if manager_open and (manager is None or manager.id in approvers):
+                required[required.index(ApproverKind.MANAGER)] = ApproverKind.SECURITY
+                notes.append(
+                    Reason.NO_MANAGER_ESCALATED if manager is None else Reason.DIRECTORY_CHANGED_ESCALATED
+                )
+                manager_open = False
+            if ApproverKind.OWNER in still_open:
+                owner_reason = None
+                if resource.owner_id == requester.id:
+                    owner_reason = Reason.REQUESTER_IS_OWNER_ESCALATED
+                elif manager is not None and manager.id == resource.owner_id and manager_open:
+                    owner_reason = Reason.MANAGER_IS_OWNER_ESCALATED
+                elif owner is None or not owner.active or owner.id in approvers:
+                    owner_reason = Reason.DIRECTORY_CHANGED_ESCALATED
+                if owner_reason is not None:
+                    required[required.index(ApproverKind.OWNER)] = ApproverKind.SECURITY
+                    notes.append(owner_reason)
+            if not notes:
+                continue
+
+            reasons = json.loads(row["reasons"])
+            reasons += [note.value for note in notes if note.value not in reasons]
+            conn.execute(
+                "UPDATE requests SET required = ?, reasons = ?, version = version + 1 WHERE id = ?",
+                (
+                    json.dumps([k.value for k in sorted(required, key=KIND_ORDER.__getitem__)]),
+                    json.dumps(reasons),
+                    row["id"],
+                ),
+            )
+            audit.append(
+                conn,
+                ts=now,
+                actor=actor,
+                action="request.rerouted",
+                subject=f"request:{row['id']}",
+                details={"to": ApproverKind.SECURITY.value, "reasons": [note.value for note in notes]},
+            )
+            changed += 1
+        return changed
 
     def expire_due(self) -> int:
         """End every grant whose time is up. Returns how many ended."""
@@ -575,7 +754,9 @@ class AccessService:
         if not resource_id:
             errors["resource_id"] = "Choose the resource you need access to"
         else:
-            row = conn.execute("SELECT * FROM resources WHERE id = ?", (resource_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM resources WHERE id = ? AND active = 1", (resource_id,)
+            ).fetchone()
             if row is None:
                 errors["resource_id"] = "Choose a resource from the list"
             else:
@@ -640,7 +821,10 @@ class AccessService:
         )
         manager = None
         if requester.manager_id is not None:
-            row = conn.execute("SELECT * FROM users WHERE id = ?", (requester.manager_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM users WHERE id = ? AND active = 1", (requester.manager_id,)
+            ).fetchone()
+            # A manager who has left cannot approve, so the policy sends the step to security instead.
             manager = _user(row) if row else None
         return PolicyContext(held, pending, tuple(self._sod_rules(conn)), manager)
 
@@ -726,7 +910,7 @@ class AccessService:
         self._check_version(row, expected_version)
         if row["status"] != RequestStatus.PENDING:
             raise Conflict(f"Request #{request_id} is already {row['status']}.")
-        approver = self._get_user(conn, approver_id)
+        approver = self._get_active_user(conn, approver_id)
         requester = self._get_user(conn, row["requester_id"])
         resource = _resource(
             conn.execute("SELECT * FROM resources WHERE id = ?", (row["resource_id"],)).fetchone()
@@ -810,6 +994,14 @@ class AccessService:
         if row is None:
             raise Forbidden("Unknown user.")
         return _user(row)
+
+    @staticmethod
+    def _get_active_user(conn: sqlite3.Connection, user_id: str) -> User:
+        """Someone acting now. People who left the directory cannot do anything."""
+        user = AccessService._get_user(conn, user_id)
+        if not user.active:
+            raise Forbidden("Unknown user.")
+        return user
 
     @staticmethod
     def _required(row: sqlite3.Row) -> tuple[ApproverKind, ...]:

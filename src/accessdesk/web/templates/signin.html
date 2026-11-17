@@ -9,7 +9,7 @@
   <div class="field{% if user_error %} field-error{% endif %}">
     <fieldset class="fieldset" aria-describedby="user-hint{% if user_error %} user_id-error{% endif %}">
       <legend class="legend">Who are you?</legend>
-      <div id="user-hint" class="hint">This demo has no passwords. A real deployment sits behind your company's single sign-on.</div>
+      <div id="user-hint" class="hint">This is a demo with no passwords, so you can be anyone. Real deployments use your company's single sign-on instead.</div>
       {{ m.error_message(errors, "user_id", "user_id") }}
       <div class="radios">
         {% for person in people %}
