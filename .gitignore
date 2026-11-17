@@ -16,3 +16,6 @@ htmlcov/
 *.db-wal
 *.db-shm
 test-results/
+# Settings files hold secrets
+.env
+*.env

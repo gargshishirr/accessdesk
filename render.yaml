@@ -1,6 +1,7 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
-# Runs AccessDesk as a public demo on Render's free plan. Free services have no persistent disk, so the
-# SQLite database starts again with fresh demo data whenever the service restarts or wakes from sleep.
+# Runs AccessDesk as a public DEMO on Render's free plan: anyone can sign in as anyone, and the SQLite
+# database starts again with fresh demo data whenever the service restarts or wakes from sleep.
+# For real use (company single sign-on and a persistent disk), follow "Run it on Render" in GUIDE.md.
 services:
   - type: web
     name: accessdesk
@@ -16,3 +17,7 @@ services:
         generateValue: true
       - key: ACCESSDESK_API_KEY
         generateValue: true
+      # Cloudflare, in front of every Render service, puts each visitor's address in this header and
+      # overwrites any value a visitor sends, so rate limits count visitors separately.
+      - key: ACCESSDESK_CLIENT_IP_HEADER
+        value: CF-Connecting-IP
