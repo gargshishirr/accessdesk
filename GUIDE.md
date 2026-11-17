@@ -117,22 +117,32 @@ own domain, also set `ACCESSDESK_PUBLIC_URL` to it.
 
 ### Run it on your own server
 
-With Docker, from a copy of this repository:
+With Docker:
 
 ```bash
+git clone https://github.com/gargshishirr/accessdesk.git
+cd accessdesk
 docker build -t accessdesk .
 docker run -d --name accessdesk --restart unless-stopped -p 127.0.0.1:8000:8000 \
   -v accessdesk-data:/data --env-file accessdesk.env accessdesk
 ```
 
-`accessdesk.env` holds your settings, one `NAME=value` per line. Keep it private and out of Git.
+`accessdesk.env` holds your settings, one per line. Keep it private and out of Git. For example:
+
+```text
+ACCESSDESK_PUBLIC_URL=https://access.example.com
+ACCESSDESK_SECRET_KEY=<a random key>
+ACCESSDESK_API_KEYS=<a random key>
+ACCESSDESK_CLIENT_IP_HEADER=X-Forwarded-For
+ACCESSDESK_OIDC_ISSUER=<see "Set up single sign-on">
+ACCESSDESK_OIDC_CLIENT_ID=<from your provider>
+ACCESSDESK_OIDC_CLIENT_SECRET=<from your provider>
+ACCESSDESK_OIDC_ALLOWED_DOMAINS=example.com
+```
 
 Put an HTTPS proxy in front, for example [Caddy](https://caddyserver.com):
-`caddy reverse-proxy --from access.example.com --to 127.0.0.1:8000`. Then add
-`ACCESSDESK_CLIENT_IP_HEADER=X-Forwarded-For` to `accessdesk.env`, so AccessDesk sees each visitor's address.
-
-Without Docker, run `pip install .` and then `accessdesk serve` (it listens on 127.0.0.1:8000) behind the
-same proxy.
+`caddy reverse-proxy --from access.example.com --to 127.0.0.1:8000`. Without Docker, run `pip install .`
+and then `accessdesk serve` (it listens on 127.0.0.1:8000) behind the same proxy.
 
 ### Set up single sign-on
 
