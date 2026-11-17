@@ -157,8 +157,8 @@ class Report:
             out.append(f"Separation-of-duties rules: replaced ({self.rules_replaced} now).")
         if self.requests_rerouted:
             out.append(
-                f"Sent {self.requests_rerouted} waiting request(s) to the security team, because the "
-                "requester's manager left."
+                f"Sent {self.requests_rerouted} waiting request(s) to the security team, because nobody else "
+                "could approve them after this change."
             )
         if self.grants_ended or self.requests_cancelled or self.sessions_ended:
             out.append(
@@ -434,9 +434,10 @@ def apply(service: AccessService, directory: Directory, *, dry_run: bool = False
             conn.execute("PRAGMA defer_foreign_keys = ON")
             if directory.people is not None:
                 _apply_people(service, conn, directory.people, report)
-                report.requests_rerouted = service.reroute_orphaned_manager_steps(conn, actor=ACTOR)
             if directory.resources is not None:
                 _apply_resources(service, conn, directory.resources, report)
+            if directory.people is not None or directory.resources is not None:
+                report.requests_rerouted = service.reroute_stuck_steps(conn, actor=ACTOR)
             if directory.rules is not None:
                 _apply_rules(service, conn, directory.rules, report)
             _check_references(conn, report)
@@ -554,17 +555,20 @@ def _apply_people(
             details={"changes": changes},
         )
         report.people_updated.append(entry.id)
+        leaving = old["active"] and not entry.active
+        if leaving or "email" in changes:
+            # Single sign-on finds people by email, so whoever signed in with the old address must go.
+            report.sessions_ended += conn.execute(
+                "DELETE FROM sessions WHERE user_id = ?", (entry.id,)
+            ).rowcount
         if "security" in changes:
             (report.security_added if entry.security else report.security_removed).append(entry.id)
-        if old["active"] and not entry.active:
+        if leaving:
             grants, requests = service.end_access_in(
                 conn, user_id=entry.id, actor=ACTOR, note="This person left the directory."
             )
             report.grants_ended += grants
             report.requests_cancelled += requests
-            report.sessions_ended += conn.execute(
-                "DELETE FROM sessions WHERE user_id = ?", (entry.id,)
-            ).rowcount
             report.people_removed.append(entry.id)
 
 

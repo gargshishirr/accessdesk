@@ -199,15 +199,15 @@ Expect different numbers on other machines.
 | `test_audit.py` | Hash chain, and tampering found at the exact entry (edit, delete, relink) | 7 |
 | `test_service.py` | Workflows, expiry, fail-closed re-checks, versions, racing approvers on real threads | 28 |
 | `test_web.py` | Demo sign-in, CSRF, security headers, open redirects, error summaries, the main page flows | 23 |
-| `test_sso.py` | Single sign-on end to end against a fake identity provider: PKCE, state, nonce, 14 kinds of bad ID token, key rotation, verified email, allowed domains, sessions, rate limits, logs | 46 |
+| `test_sso.py` | Single sign-on end to end against a fake identity provider: PKCE, state, nonce, 14 kinds of bad ID token, key rotation, verified email, allowed domains, sessions, client authentication, rate limits, logs | 47 |
 | `test_security.py` | Who may approve what, audit log access, people who left, API key rotation, rate limits, client addresses, log redaction | 20 |
-| `test_directory.py` | Directory import and export: adds, audited updates, leavers, retired resources, requests re-routed when a manager leaves, every mistake reported | 15 |
+| `test_directory.py` | Directory import and export: adds, audited updates, leavers, retired resources, steps re-routed when nobody else can approve them, every mistake reported | 19 |
 | `test_config.py` | Settings, and every half-done single sign-on setup refused | 22 |
 | `test_api.py` | API key, fail-closed checks, tamper reporting, metrics labels, background sweeper | 6 |
 | `test_cli.py` | `seed`, `verify-audit`, `serve`, `directory` and `backup` commands | 7 |
 | `a11y/test_accessibility.py` | axe-core on 24 pages and states (demo and single sign-on) at two widths, keyboard-only flow, skip link, forced colours | 27 |
 
-All 227 tests pass with 95% branch coverage on Python 3.11 to 3.14. No test needs the internet.
+All 232 tests pass with 95% branch coverage on Python 3.11 to 3.14. No test needs the internet.
 
 ```bash
 pytest -m "not a11y"                            # fast suite, no browser needed

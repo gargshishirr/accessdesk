@@ -53,7 +53,8 @@ class FakeProvider:
         self.issuer = issuer
         self.signing_key = KEY
         self.published = [KEY]
-        self.auth_methods = ["client_secret_post", "client_secret_basic"]
+        self.auth_methods = ["client_secret_post", "client_secret_basic"]  # what discovery lists
+        self.accepted_methods = {"client_secret_post", "client_secret_basic"}  # what the token endpoint takes
         self.discovery_changes: dict[str, Any] = {}
         self.down = False
         self.token_error: tuple[int, dict[str, Any]] | None = None
@@ -135,11 +136,13 @@ class FakeProvider:
         self.token_requests.append(request)
         form = {key: values[0] for key, values in parse_qs(request.content.decode()).items()}
         client = (form.get("client_id"), form.get("client_secret"))
+        method = "client_secret_post"
         authorization = request.headers.get("authorization", "")
         if authorization.startswith("Basic "):
             user, _, password = base64.b64decode(authorization[6:]).decode().partition(":")
             client = (unquote(user), unquote(password))
-        if client != (CLIENT_ID, CLIENT_SECRET):
+            method = "client_secret_basic"
+        if client != (CLIENT_ID, CLIENT_SECRET) or method not in self.accepted_methods:
             return httpx2.Response(401, json={"error": "invalid_client"})
         if self.token_error is not None:
             return httpx2.Response(self.token_error[0], json=self.token_error[1])

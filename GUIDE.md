@@ -219,8 +219,8 @@ accessdesk directory import directory.json
 ```
 
 When someone leaves, set `"active": false` for them and load the file again. Their sessions, access and
-pending requests end at once, and they stay in the history. Requests waiting for them as a manager go to the
-security team, unless the same file gives their team a new manager.
+pending requests end at once, and they stay in the history. If a change leaves a waiting request with a step
+nobody can approve (say its approver left), that step goes to the security team.
 
 Retire a system the same way, with `"active": false`.
 

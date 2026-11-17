@@ -322,10 +322,7 @@ def test_waiting_requests_go_to_security_when_the_manager_leaves(service: Access
 
     report = apply(service, with_person(directory.export(service), "bob", active=False))
     assert report.requests_rerouted == 1
-    assert (
-        "Sent 1 waiting request(s) to the security team, because the requester's manager left."
-        in report.lines()
-    )
+    assert "Sent 1 waiting request(s) to the security team" in "\n".join(report.lines())
     page = service.request_page(waiting, "dan")
     assert page.request.required == (ApproverKind.SECURITY,)
     assert Reason.NO_MANAGER_ESCALATED in page.request.reasons
@@ -375,3 +372,45 @@ def test_broken_files_never_crash_or_half_apply(service: AccessService, tmp_path
     latin1.write_bytes('{"people": [{"name": "Jos\xe9"}]}'.encode("latin-1"))
     with pytest.raises(DirectoryError, match="is not UTF-8 text"):
         directory.load(latin1)
+
+
+def test_changing_someones_email_signs_them_out(service: AccessService, client: TestClient) -> None:
+    sign_in(client, "alice")
+    report = apply(service, with_person(directory.export(service), "alice", email="alice.chen@example.com"))
+    assert report.sessions_ended == 1
+    assert client.get("/").status_code == 303
+
+
+@pytest.mark.parametrize(
+    ("change", "approve_first", "reason"),
+    [
+        ({"people": {"alice": {"manager": "frank"}}}, None, Reason.MANAGER_IS_OWNER_ESCALATED),
+        ({"resources": {"prod-db": {"owner": "alice"}}}, None, Reason.REQUESTER_IS_OWNER_ESCALATED),
+        ({"resources": {"prod-db": {"owner": "bob"}}}, "bob", Reason.DIRECTORY_CHANGED_ESCALATED),
+    ],
+    ids=["manager-now-owns-it", "requester-now-owns-it", "owner-already-approved"],
+)
+def test_steps_nobody_could_approve_after_a_change_go_to_security(
+    service: AccessService,
+    change: dict[str, dict[str, dict[str, str]]],
+    approve_first: str | None,
+    reason: Reason,
+) -> None:
+    request_id = service.submit("alice", "prod-db", "viewer", 8, WHY).request_id  # manager bob, owner frank
+    if approve_first:
+        service.approve(request_id, approve_first)
+    data = directory.export(service)
+    for person, values in change.get("people", {}).items():
+        data = with_person(data, person, **values)
+    for resource, values in change.get("resources", {}).items():
+        data = with_resource(data, resource, **values)
+    assert apply(service, data).requests_rerouted == 1
+
+    request = service.request_page(request_id, "dan").request
+    assert ApproverKind.OWNER not in request.required
+    assert request.required.count(ApproverKind.SECURITY) == 1
+    assert reason in request.reasons
+    manager = service.user("alice").manager_id  # type: ignore[union-attr]
+    if not approve_first:
+        service.approve(request_id, str(manager))
+    assert service.approve(request_id, "dan").status.value == "approved"

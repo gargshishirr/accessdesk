@@ -507,25 +507,49 @@ class AccessService:
             )
         return len(grants), len(requests)
 
-    def reroute_orphaned_manager_steps(self, conn: sqlite3.Connection, *, actor: str) -> int:
-        """Inside the caller's write transaction: when a requester no longer has an active manager, the open
-        manager step of their pending requests goes to the security team, just as the policy does for new
-        requests. Otherwise nobody could ever approve them. Returns how many requests changed."""
+    def reroute_stuck_steps(self, conn: sqlite3.Connection, *, actor: str) -> int:
+        """Inside the caller's write transaction, after a directory change: an open manager or owner step that
+        nobody can approve any more goes to the security team, as the policy does for new requests. That
+        happens when the manager left, the requester now owns the resource, the manager and the owner are now
+        the same person, or that person already approved another step. Returns how many requests changed."""
         now = self.clock.now()
-        rows = conn.execute(
-            "SELECT r.* FROM requests r JOIN users u ON u.id = r.requester_id "
-            "LEFT JOIN users m ON m.id = u.manager_id "
-            "WHERE r.status = 'pending' AND (m.id IS NULL OR m.active = 0) ORDER BY r.id"
-        ).fetchall()
+        users, resources = self._directory(conn)
         changed = 0
-        for row in rows:
+        for row in conn.execute("SELECT * FROM requests WHERE status = 'pending' ORDER BY id").fetchall():
+            requester, resource = users[row["requester_id"]], resources[row["resource_id"]]
+            manager = users.get(requester.manager_id or "")
+            if manager is not None and not manager.active:
+                manager = None
+            owner = users.get(resource.owner_id)
             required = list(self._required(row))
-            if ApproverKind.MANAGER not in policy.open_slots(required, self._filled(conn, row["id"])):
+            filled = self._filled(conn, row["id"])
+            approvers = {who for _, who in filled}
+            still_open = policy.open_slots(required, filled)
+            notes: list[Reason] = []
+
+            manager_open = ApproverKind.MANAGER in still_open
+            if manager_open and (manager is None or manager.id in approvers):
+                required[required.index(ApproverKind.MANAGER)] = ApproverKind.SECURITY
+                notes.append(
+                    Reason.NO_MANAGER_ESCALATED if manager is None else Reason.DIRECTORY_CHANGED_ESCALATED
+                )
+                manager_open = False
+            if ApproverKind.OWNER in still_open:
+                owner_reason = None
+                if resource.owner_id == requester.id:
+                    owner_reason = Reason.REQUESTER_IS_OWNER_ESCALATED
+                elif manager is not None and manager.id == resource.owner_id and manager_open:
+                    owner_reason = Reason.MANAGER_IS_OWNER_ESCALATED
+                elif owner is None or not owner.active or owner.id in approvers:
+                    owner_reason = Reason.DIRECTORY_CHANGED_ESCALATED
+                if owner_reason is not None:
+                    required[required.index(ApproverKind.OWNER)] = ApproverKind.SECURITY
+                    notes.append(owner_reason)
+            if not notes:
                 continue
-            required[required.index(ApproverKind.MANAGER)] = ApproverKind.SECURITY
+
             reasons = json.loads(row["reasons"])
-            if Reason.NO_MANAGER_ESCALATED.value not in reasons:
-                reasons.append(Reason.NO_MANAGER_ESCALATED.value)
+            reasons += [note.value for note in notes if note.value not in reasons]
             conn.execute(
                 "UPDATE requests SET required = ?, reasons = ?, version = version + 1 WHERE id = ?",
                 (
@@ -540,7 +564,7 @@ class AccessService:
                 actor=actor,
                 action="request.rerouted",
                 subject=f"request:{row['id']}",
-                details={"from": ApproverKind.MANAGER.value, "to": ApproverKind.SECURITY.value},
+                details={"to": ApproverKind.SECURITY.value, "reasons": [note.value for note in notes]},
             )
             changed += 1
         return changed

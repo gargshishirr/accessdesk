@@ -168,6 +168,14 @@ def test_rate_limits_can_use_the_address_a_trusted_proxy_reports(service: Access
         assert guess(client, {"CF-Connecting-IP": "198.51.100.2"}) == 401  # another visitor
         # Only the last value counts: a client can add to the header, but the proxy adds after it.
         assert guess(client, {"CF-Connecting-IP": "198.51.100.9, 203.0.113.1"}) == 429
+        # A proxy may add its own header line instead of extending the client's: the last line counts.
+        for spoofed in range(3):
+            lines = [
+                ("X-API-Key", "guess"),
+                ("CF-Connecting-IP", f"10.0.0.{spoofed}"),
+                ("CF-Connecting-IP", "203.0.113.1"),
+            ]
+            assert client.get("/api/v1/check", params=CHECK, headers=lines).status_code == 429
     with api_client(service) as client:  # without the setting, the header is ignored
         for spoofed in range(11):
             guess(client, {"CF-Connecting-IP": f"192.0.2.{spoofed}"})

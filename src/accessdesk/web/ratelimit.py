@@ -81,7 +81,8 @@ def client_address(request: Request) -> str:
     """
     header = request.app.state.settings.client_ip_header
     if header:
-        value = request.headers.get(header, "").rsplit(",", 1)[-1].strip()
+        # Some proxies add a second header line rather than extending the first, so read every line.
+        value = ",".join(request.headers.getlist(header)).rsplit(",", 1)[-1].strip()
         if value:
             return value
     return request.client.host if request.client else "unknown"

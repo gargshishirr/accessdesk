@@ -89,7 +89,8 @@ class Provider:
     token_endpoint: str
     jwks_uri: str
     algorithms: tuple[str, ...]
-    client_auth: str  # client_secret_post or client_secret_basic
+    # How to send the client secret, in the order to try: client_secret_basic, client_secret_post.
+    client_auth: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +120,20 @@ def _says_true(value: object) -> bool:
     if isinstance(value, int):
         return value == 1
     return isinstance(value, str) and value.strip().lower() in {"true", "1"}
+
+
+def _json_object(response: httpx2.Response) -> dict[str, Any] | None:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def _error_code(response: httpx2.Response) -> str:
+    body = _json_object(response)
+    error = body.get("error") if body else None
+    return error if isinstance(error, str) else ""
 
 
 def safe_code(value: object) -> str:
@@ -197,19 +212,18 @@ class OidcClient:
         algorithms = (
             tuple(a for a in offered if a in ASYMMETRIC_ALGORITHMS) if isinstance(offered, list) else ()
         )
+        # OpenID Connect's default is HTTP Basic, which every OAuth server must accept (RFC 6749, 2.3.1).
+        # The secret goes in the form body only if the provider does not offer Basic.
         methods = data.get("token_endpoint_auth_methods_supported")
-        client_auth = (
-            "client_secret_post"
-            if isinstance(methods, list) and "client_secret_post" in methods
-            else "client_secret_basic"  # the default in OAuth 2.0
-        )
+        offered = [m for m in methods if isinstance(m, str)] if isinstance(methods, list) else []
+        client_auth = tuple(m for m in ("client_secret_basic", "client_secret_post") if m in offered)
         return Provider(
             issuer=issuer,
             authorization_endpoint=endpoints["authorization_endpoint"],
             token_endpoint=endpoints["token_endpoint"],
             jwks_uri=endpoints["jwks_uri"],
             algorithms=algorithms or ("RS256",),
-            client_auth=client_auth,
+            client_auth=client_auth or ("client_secret_basic", "client_secret_post"),
         )
 
     async def _key_set(self, provider: Provider, *, refresh: bool = False) -> KeySet:
@@ -234,9 +248,33 @@ class OidcClient:
             "redirect_uri": self.redirect_uri,
             "code_verifier": verifier,
         }
+        for attempt, method in enumerate(provider.client_auth, start=1):
+            response = await self._token_request(provider.token_endpoint, method, form)
+            refused_client = response.status_code == 401 or _error_code(response) == "invalid_client"
+            # Some providers accept only the method the app was registered with. The provider checks the
+            # client before the code, so the code is still unused and the other method can be tried.
+            if not refused_client or attempt == len(provider.client_auth):
+                break
+        if response.status_code >= 500:
+            raise ProviderUnavailable("token_endpoint_error", str(response.status_code))
+        body = _json_object(response)
+        if response.status_code != 200 or body is None:
+            raise SignInError(
+                "token_refused", f"{response.status_code} {safe_code(_error_code(response))}".strip()
+            )
+        id_token = body.get("id_token")
+        if not isinstance(id_token, str) or not id_token:
+            raise SignInError("no_id_token")
+        return id_token
+
+    async def _token_request(self, url: str, method: str, form: dict[str, str]) -> httpx2.Response:
         auth: httpx2.Auth | None = None
-        if provider.client_auth == "client_secret_post":
-            form |= {"client_id": self.settings.client_id, "client_secret": self.settings.client_secret}
+        if method == "client_secret_post":
+            form = {
+                **form,
+                "client_id": self.settings.client_id,
+                "client_secret": self.settings.client_secret,
+            }
         else:
             # RFC 6749, section 2.3.1: form-encode both parts before Basic authentication.
             auth = httpx2.BasicAuth(
@@ -244,22 +282,9 @@ class OidcClient:
             )
         try:
             async with self._client(auth) as client:
-                response = await client.post(provider.token_endpoint, data=form)
+                return await client.post(url, data=form)
         except httpx2.HTTPError as exc:
             raise ProviderUnavailable("token_endpoint_unreachable", type(exc).__name__) from None
-        if response.status_code >= 500:
-            raise ProviderUnavailable("token_endpoint_error", str(response.status_code))
-        try:
-            body = response.json()
-        except ValueError:
-            body = None
-        if response.status_code != 200 or not isinstance(body, dict):
-            error = body.get("error") if isinstance(body, dict) else ""
-            raise SignInError("token_refused", f"{response.status_code} {safe_code(error)}".strip())
-        id_token = body.get("id_token")
-        if not isinstance(id_token, str) or not id_token:
-            raise SignInError("no_id_token")
-        return id_token
 
     async def _verify(self, provider: Provider, id_token: str, nonce: str) -> dict[str, Any]:
         registry = JWSRegistry(algorithms=provider.algorithms, strict_check_header=False)

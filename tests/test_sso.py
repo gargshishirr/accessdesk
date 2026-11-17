@@ -125,12 +125,14 @@ def test_sign_in_with_the_company_account_end_to_end(sso: TestClient, provider: 
     assert "domain=" not in cookie.lower()
     assert signed_in_as(sso) == "Alice Chen"
 
-    # The code went to the token endpoint with the PKCE verifier and the client secret in the form body.
+    # The code went to the token endpoint with the PKCE verifier, and the client secret in Basic auth.
     [token_call] = provider.token_requests
     form = {key: values[0] for key, values in parse_qs(token_call.content.decode()).items()}
     assert pkce_challenge(form["code_verifier"]) == params["code_challenge"]
-    assert form["client_secret"] == CLIENT_SECRET
     assert form["redirect_uri"] == params["redirect_uri"]
+    assert "client_secret" not in form
+    basic = base64.b64decode(token_call.headers["authorization"].removeprefix("Basic ")).decode()
+    assert basic == f"{CLIENT_ID}:{CLIENT_SECRET}"
 
 
 def test_the_demo_person_picker_does_not_exist_with_single_sign_on(sso: TestClient) -> None:
@@ -140,14 +142,30 @@ def test_the_demo_person_picker_does_not_exist_with_single_sign_on(sso: TestClie
     assert signed_in_as(sso) is None
 
 
-def test_client_secret_basic_when_the_provider_only_offers_that(
+def test_client_secret_post_when_the_provider_only_offers_that(
     sso: TestClient, provider: FakeProvider
 ) -> None:
-    provider.auth_methods = ["client_secret_basic"]
+    provider.auth_methods = ["client_secret_post"]
     assert sign_in(sso, provider).status_code == 303
     [token_call] = provider.token_requests
-    assert token_call.headers["authorization"].startswith("Basic ")
-    assert "client_secret" not in token_call.content.decode()
+    assert "authorization" not in token_call.headers
+    assert parse_qs(token_call.content.decode())["client_secret"] == [CLIENT_SECRET]
+
+
+def test_the_other_client_auth_method_is_tried_when_the_first_is_refused(
+    sso: TestClient, provider: FakeProvider
+) -> None:
+    provider.accepted_methods = {
+        "client_secret_post"
+    }  # registered for the body method only, like some providers
+    assert sign_in(sso, provider).status_code == 303
+    basic, post = provider.token_requests
+    assert "authorization" in basic.headers
+    assert "client_secret" in post.content.decode()
+    provider.accepted_methods = set()
+    sso.cookies.clear()
+    assert sign_in(sso, provider).status_code == 400  # a wrong secret still fails cleanly
+    assert len(provider.token_requests) == 4
 
 
 def test_microsoft_style_tokens_use_xms_edov_instead_of_email_verified(
