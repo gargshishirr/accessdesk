@@ -1,16 +1,60 @@
 # AccessDesk
 
-**Accessible, just-in-time access requests for employees.** People ask for temporary access to internal
-systems, the right approvers say yes or no, access ends on its own, and every change lands in a
-tamper-evident audit log.
+**Temporary access to internal systems: approved by the right people, ended on time, audited for good.**
+People ask for just-in-time access, a pure and property-tested policy picks who must approve, four-eyes and
+separation-of-duties rules hold even when approvers race, access ends on its own, and every change lands in
+a tamper-evident audit log. It uses no JavaScript, targets WCAG 2.2 AA and runs under a strict CSP.
 
-**[Read the guide](GUIDE.md)** for how to use it, set up company sign-in, load your directory and run it.
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/gargshishirr/accessdesk)
 
 [![CI](https://github.com/gargshishirr/accessdesk/actions/workflows/ci.yml/badge.svg)](https://github.com/gargshishirr/accessdesk/actions/workflows/ci.yml)
 ![Python 3.11 to 3.14](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)
 ![WCAG 2.2 AA target](https://img.shields.io/badge/WCAG%202.2-AA%20target-yellow)
+![No JavaScript](https://img.shields.io/badge/JavaScript-none-brightgreen)
 
-![Approving a request](docs/screenshots/approval.png)
+![The home dashboard, with the guided 60-second demo two steps in](docs/screenshots/home.png)
+
+**[Read the guide](GUIDE.md)** for how to use it, set up company sign-in, load your directory and run it.
+
+## Try it
+
+Start a demo on your own machine (see [Quick start](#quick-start)), or deploy a free one with the button
+above. The demo has no passwords: **Start the guided demo** on the sign-in page makes you Alice, the
+requester, and four persona cards let you become any main character with one click.
+
+| Person | Role in the demo | What they can do |
+|---|---|---|
+| **Alice Chen** | Requester | Asks for temporary access. Start here. |
+| **Bob Singh** | Manager | Approves requests from Alice and Erin, his team. |
+| **Frank Moreau** | Resource owner | Owns the production database and more; approves access to them and reviews who has it. |
+| **Dan Okafor** | Security reviewer | Approves critical and admin access, reviews everyone's access and reads the audit log. |
+
+Everyone else in the demo company is one radio button away, and **Switch person** in the header changes who
+you are on any page.
+
+**The full flow in 60 seconds.** Alice's home page has a checklist. Each step ticks off from what really
+happened, and its **Continue as** button signs you in as the right person and opens the right page:
+
+1. As Alice, ask for the **Production Database**. Before you send it, the form says who the policy will
+   ask, by name: Bob and Frank (and security as well if you pick admin).
+2. As Bob, her manager, approve it.
+3. As Frank, the owner, give the second, independent approval.
+4. Back as Alice, open the request: the access is live, counting down, and will end on its own.
+5. As Dan, open the audit log: every step is there and the hash chain verifies.
+
+The demo data is a few days of realistic history, so every approver has work waiting, one of Alice's grants
+is about to expire, and the audit log, reviews and dashboards are full from the first click.
+
+| | |
+|---|---|
+| ![Sign-in page with one-click persona cards](docs/screenshots/signin.png) | ![Request form with the approval summary](docs/screenshots/request-form.png) |
+| One click to become any of the four main characters. | Who will approve, by name, for each access level, from the real policy. |
+| ![Approving a request](docs/screenshots/approval.png) | ![A request's timeline after approval](docs/screenshots/request-timeline.png) |
+| The owner's view: where it stands, why, and the decision. | Every step, then the countdown to automatic expiry. |
+| ![Audit log with the verified hash chain](docs/screenshots/audit-log.png) | ![Form errors](docs/screenshots/form-errors.png) |
+| The chain is re-verified every time the log opens. | Every problem is listed, linked to its field and announced. |
+
+<img src="docs/screenshots/mobile-home.png" alt="The home page on a phone" width="300">
 
 ## Why
 
@@ -45,16 +89,16 @@ complete version of that internal tool.
 - **Accessible by default.** It targets WCAG 2.2 AA and uses no JavaScript. Forms use GOV.UK-style error
   summaries, focus is always visible, and pages work at 320 px wide and in Windows high contrast mode.
   See [Accessibility](#accessibility).
+- **Clear at a glance.** A home dashboard shows your access with time-left bars and "expiring soon"
+  warnings, what is waiting for your decision and recent activity in plain words. Request pages show a
+  timeline and explain, in plain English, why the policy chose that route.
+- **A guided demo.** In demo mode only: one-click personas, a person switcher and a checklist that walks
+  through the whole flow in about a minute. None of it exists once single sign-on is on.
 - **A directory you control.** People, managers, resources, owners and separation-of-duties rules load from
   one JSON file. Removing a person ends their sessions, access and pending requests in the same transaction.
 - **Ready to operate.** Other services call `GET /api/v1/check` with an API key (several keys can be live,
   for rotation). There are also `/api/v1/audit/verify`, `/healthz` and Prometheus `/metrics`, server-side
   sessions, rate limits, a strict CSP, security headers, CSRF tokens and open-redirect protection.
-
-| | |
-|---|---|
-| ![Form errors](docs/screenshots/form-errors.png) | ![Audit log](docs/screenshots/audit-log.png) |
-| Every problem is listed, linked to its field and announced. | The audit chain is verified on every view. |
 
 ## Quick start
 
@@ -66,12 +110,9 @@ accessdesk serve                # http://127.0.0.1:8000
 ```
 
 This starts in **demo mode**: a yellow banner says anyone can sign in as anyone, and the first run adds demo
-people, resources and requests. (The [guide](GUIDE.md#set-up-single-sign-on) shows how to switch on company
-sign-in.) Then:
-
-1. Sign in as **Alice Chen** and ask for access to the production database.
-2. Sign in as **Bob Singh** (her manager), then as **Frank Moreau** (the owner), to approve it.
-3. Sign in as **Dan Okafor** (security) to read the audit log.
+people, resources and a few days of requests. Choose **Continue as Alice Chen** and follow the checklist on
+the home page (see [Try it](#try-it)). The [guide](GUIDE.md#set-up-single-sign-on) shows how to switch on
+company sign-in.
 
 Other services ask for decisions over HTTP (interactive docs at `/api/docs` in demo mode):
 
@@ -118,8 +159,9 @@ worker). A [`Dockerfile`](Dockerfile) builds a non-root image that keeps its dat
 
 [`render.yaml`](render.yaml) runs AccessDesk as a public demo on the free plan, with secure cookies and HSTS
 on and a generated session secret and API key (shown in the service's **Environment** tab). Free services
-have no persistent disk, so the database starts again with fresh demo data whenever the service restarts or
-wakes up; they also sleep after 15 idle minutes and take about a minute to wake. For real use, add a
+have no persistent disk, so the database starts again with fresh demo data (and a fresh guided demo)
+whenever the service restarts or wakes up; they also sleep after 15 idle minutes and take about a minute to
+wake. Everyone using one demo site shares its data, so visitors may see each other's requests. For real use, add a
 [persistent disk](https://render.com/docs/disks) and single sign-on as described in
 [the guide](GUIDE.md#run-it-on-render).
 
@@ -166,7 +208,16 @@ or their manager does, security takes the owner's place.
   wait for writers. Slow work, such as re-hashing the audit chain, still uses the thread pool. On one
   client, p50 latency fell from 1.78 ms to 0.97 ms. On 4 workers, throughput rose from 1,592 to 3,389 checks/s.
 - **No JavaScript.** Every action is a form post followed by a redirect. That is the most robust baseline
-  for assistive technology, and it allows a strict CSP (`default-src 'none'`).
+  for assistive technology, and it allows a strict CSP (`default-src 'none'`). The person switcher is a
+  native `<details>` element, and CSS `:has()` highlights radio cards and reveals the "Other" hours box.
+- **Polish without loosening the CSP.** All styling lives in one static stylesheet: time-left bars use
+  5%-step width classes instead of inline styles, icons are inline SVG drawn with presentation attributes,
+  and text uses the system font stack, so the policy needs no `unsafe-inline`, `font-src` or third party.
+- **The guided demo reads real state.** The approval summary on the request form calls the same
+  `policy.evaluate` that submitting does (a test checks they agree, role by role), and the checklist ticks
+  off from the requester's newest high-risk request, so it can never claim a step that did not happen. The
+  last two steps tick only once you open the page they point to (the live access as the requester, the
+  audit log as security); the session remembers just those request numbers, never anything that signs you in.
 - **Sign-in is checked step by step, and sessions live on the server.** A small typed OpenID Connect client
   (`oidc.py`) runs the code flow with PKCE, state and nonce, and checks ID tokens with
   [joserfc](https://jose.authlib.org): asymmetric signatures from the provider's published keys only, then
@@ -199,15 +250,17 @@ Expect different numbers on other machines.
 | `test_audit.py` | Hash chain, and tampering found at the exact entry (edit, delete, relink) | 7 |
 | `test_service.py` | Workflows, expiry, fail-closed re-checks, versions, racing approvers on real threads | 28 |
 | `test_web.py` | Demo sign-in, CSRF, security headers, open redirects, error summaries, the main page flows | 23 |
-| `test_sso.py` | Single sign-on end to end against a fake identity provider: PKCE, state, nonce, 14 kinds of bad ID token, key rotation, verified email, allowed domains, sessions, client authentication, rate limits, logs | 47 |
+| `test_demo.py` | Persona sign-in and switching, the approval summary matching the policy role by role, duration presets, the guided checklist following real state, dashboards, timelines, decision hints, plain-words audit log | 23 |
+| `test_sso.py` | Single sign-on end to end against a fake identity provider: PKCE, state, nonce, 14 kinds of bad ID token, key rotation, verified email, allowed domains, sessions, client authentication, rate limits, logs, and no demo personas, switcher or checklist | 48 |
 | `test_security.py` | Who may approve what, audit log access, people who left, API key rotation, rate limits, client addresses, log redaction | 20 |
 | `test_directory.py` | Directory import and export: adds, audited updates, leavers, retired resources, steps re-routed when nobody else can approve them, every mistake reported | 19 |
 | `test_config.py` | Settings, and every half-done single sign-on setup refused | 22 |
 | `test_api.py` | API key, fail-closed checks, tamper reporting, metrics labels, background sweeper | 6 |
 | `test_cli.py` | `seed`, `verify-audit`, `serve`, `directory` and `backup` commands | 7 |
-| `a11y/test_accessibility.py` | axe-core on 24 pages and states (demo and single sign-on) at two widths, keyboard-only flow, skip link, forced colours | 27 |
+| `a11y/test_accessibility.py` | axe-core on 32 pages and states (demo and single sign-on) at two widths, the guided demo clicked through with axe at every stop, keyboard-only flow, skip link, forced colours | 36 |
 
-All 232 tests pass with 95% branch coverage on Python 3.11 to 3.14. No test needs the internet.
+All 265 tests pass with 96% branch coverage (checked locally on Python 3.11; CI runs 3.11 to 3.14). No test
+needs the internet.
 
 ```bash
 pytest -m "not a11y"                            # fast suite, no browser needed
@@ -217,8 +270,9 @@ ruff check . && ruff format --check . && mypy   # lint, formatting, strict typin
 
 ## Accessibility
 
-AccessDesk targets WCAG 2.2 level AA. Every page and state (24 of them, including error states and the
-single sign-on pages) is scanned with axe-core at 1280 px and 320 px wide. The scan covers WCAG 2.0, 2.1 and
+AccessDesk targets WCAG 2.2 level AA. Every page and state (32 of them, including error states, the open
+person switcher and the single sign-on pages) is scanned with axe-core at 1280 px and 320 px wide, and so is
+every stop of the guided demo. The scan covers WCAG 2.0, 2.1 and
 2.2 A and AA rules plus best-practice rules, and CI fails on any violation. Automated tests also cover:
 
 - requesting and approving access with the keyboard only, with a visible focus indicator at every stop;
@@ -241,7 +295,8 @@ src/accessdesk/
   oidc.py        OpenID Connect client: discovery, PKCE, token exchange, ID token checks
   directory.py   directory file: checks, import (one audited transaction) and export
   config.py      settings and the rules that stop a half-done setup
-  web/           FastAPI pages, sign-in, JSON API, security, rate limits, metrics, templates and CSS
+  web/           FastAPI pages, sign-in, demo personas and guided checklist, JSON API, security,
+                 rate limits, metrics, templates and CSS
 tests/           unit, property, web, sign-in (fake identity provider), API, CLI and browser tests
 scripts/         benchmark and screenshots
 GUIDE.md         how to use, run and look after AccessDesk
@@ -257,6 +312,8 @@ render.yaml      one-click public demo on Render
 - There are no email or chat notifications yet.
 - SQLite suits a single host. Many replicas would need PostgreSQL.
 - Times are shown in UTC only.
+- The guided demo follows the newest high-risk request from the demo's requester, and a public demo's data is
+  shared, so two visitors doing the checklist at once will see each other's steps.
 
 ## License
 
