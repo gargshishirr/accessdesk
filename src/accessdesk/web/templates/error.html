@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>{{ heading }}</h1>
-<p class="lead">{{ message }}</p>
-<p><a href="/">Go to My access</a></p>
+<div class="auth-card card">
+  <span class="auth-icon auth-icon-warn">{{ m.icon("alert") }}</span>
+  <h1>{{ heading }}</h1>
+  <p class="lead">{{ message }}</p>
+  <p><a class="button button-secondary" href="/">Go home</a></p>
+</div>
 {% endblock %}

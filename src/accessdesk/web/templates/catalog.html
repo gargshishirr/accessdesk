@@ -1,19 +1,40 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Request access</h1>
-<p class="lead">Choose what you need. All access is temporary and ends on its own.</p>
-<ul class="cards" id="catalog">
+<div class="page-head">
+  <div>
+    <h1>Request access</h1>
+    <p class="page-intro">Choose a system. All access is temporary and ends on its own.</p>
+  </div>
+</div>
+<ul class="resource-grid" id="catalog">
   {% for res in resources %}
-  <li class="card">
-    <h2 class="card-title">{{ res.name }}</h2>
-    <p>{{ res.description }}</p>
-    <dl class="facts">
-      <div><dt>Sensitivity</dt><dd>{{ m.sensitivity_tag(res.sensitivity) }}</dd></div>
+  {% set held_grant = held.get(res.id) %}
+  {% set open_request = waiting_for.get(res.id) %}
+  <li class="resource-card">
+    <div class="resource-top">
+      <h2 class="resource-name">{{ res.name }}</h2>
+      {{ m.sensitivity_tag(res.sensitivity) }}
+    </div>
+    <p class="resource-desc">{{ res.description }}</p>
+    <dl class="mini-facts">
+      <div><dt>Owner</dt><dd>{{ names.get(res.owner_id, res.owner_id) }}</dd></div>
       <div><dt>Who approves</dt><dd>{{ route_text(res, user) }}</dd></div>
       <div><dt>Longest access</dt><dd>{{ res.max_hours|duration }}</dd></div>
-      <div><dt>Levels</dt><dd>{{ res.roles|map(attribute="value")|join(", ")|capitalize }}</dd></div>
     </dl>
-    <a class="button button-secondary" href="/requests/new?resource={{ res.id }}">Request access<span class="visually-hidden"> to {{ res.name }}</span></a>
+    <h3 class="levels-title">Access levels</h3>
+    <ul class="levels">
+      {% for role in res.roles %}
+      <li><strong>{{ role.value|capitalize }}</strong> {{ ROLE_DESCRIPTIONS[role] }}</li>
+      {% endfor %}
+    </ul>
+    <div class="resource-foot">
+      {% if held_grant %}
+      <p class="resource-status">{{ m.icon("check") }} You have {{ held_grant.role.value }} access, {{ remaining(held_grant.expires_at, now) }}</p>
+      {% elif open_request %}
+      <p class="resource-status resource-status-wait">{{ m.icon("clock") }} <a href="/requests/{{ open_request.id }}">Request #{{ open_request.id }}</a> is waiting</p>
+      {% endif %}
+      <a class="button button-secondary" href="/requests/new?resource={{ res.id }}">Request access<span class="visually-hidden"> to {{ res.name }}</span></a>
+    </div>
   </li>
   {% endfor %}
 </ul>

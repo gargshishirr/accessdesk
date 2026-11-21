@@ -10,6 +10,7 @@ import pytest
 import uvicorn
 
 from accessdesk.__main__ import main
+from accessdesk.seed import USERS
 
 
 def test_seed_and_verify_audit_commands(
@@ -24,8 +25,8 @@ def test_seed_and_verify_audit_commands(
     assert "nothing added" in capsys.readouterr().out
 
     assert main(["verify-audit"]) == 0
-    # 6 submissions + 3 approvals + 3 grants in the demo activity.
-    assert capsys.readouterr().out.startswith("OK: 12 entries verified.")
+    # The demo activity: 11 submissions, 8 approvals, 5 grants, 1 given back, 1 removed and 1 expired.
+    assert capsys.readouterr().out.startswith("OK: 27 entries verified.")
 
     with closing(sqlite3.connect(path)) as conn:
         conn.execute("UPDATE audit_log SET details = '{}' WHERE seq = 4")
@@ -93,17 +94,17 @@ def test_directory_import_export_and_backup_commands(
 
     assert main(["directory", "import", str(exported), "--dry-run"]) == 0
     assert capsys.readouterr().out.startswith(f"Dry run, nothing saved. Directory from {exported}:")
-    assert people_in(path) == 8
+    assert people_in(path) == len(USERS)
     assert main(["directory", "import", str(exported)]) == 0
     assert "People: 1 added (hana), 0 updated." in capsys.readouterr().out
-    assert people_in(path) == 9
+    assert people_in(path) == len(USERS) + 1
 
     assert main(["directory", "export"]) == 0
     assert '"id": "hana"' in capsys.readouterr().out
 
     copy = tmp_path / "backup.db"
     assert main(["backup", str(copy)]) == 0
-    assert people_in(copy) == 9
+    assert people_in(copy) == len(USERS) + 1
     assert copy.stat().st_mode & 0o777 == 0o600  # personal data: readable by its owner only
     assert main(["backup", str(copy)]) == 1
     assert "already exists" in capsys.readouterr().err
@@ -154,7 +155,7 @@ def test_serve_with_single_sign_on_adds_no_demo_data(
     assert main(["serve"]) == 2
     assert "will not open it in demo mode" in capsys.readouterr().err
     assert main(["seed", "--force"]) == 0
-    assert people_in(path) == 8
+    assert people_in(path) == len(USERS)
 
 
 def test_serve_loads_the_directory_file_at_start(

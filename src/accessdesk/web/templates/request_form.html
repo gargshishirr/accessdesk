@@ -1,52 +1,110 @@
 {% extends "base.html" %}
 {% block content %}
 <a class="back-link" href="/requests/new">Back to all resources</a>
-<h1><span class="caption">Request access to</span> {{ resource.name }}</h1>
-<p class="lead">{{ resource.description }}</p>
-<dl class="facts facts-panel">
-  <div><dt>Owner</dt><dd>{{ owner.name if owner else resource.owner_id }}</dd></div>
-  <div><dt>Sensitivity</dt><dd>{{ m.sensitivity_tag(resource.sensitivity) }}</dd></div>
-  <div><dt>Who approves</dt><dd>{{ route_text(resource, user) }}.</dd></div>
-  <div><dt>Your manager</dt><dd>{% if manager %}{{ manager.name }}{% else %}None on file, so security approves instead{% endif %}</dd></div>
-</dl>
-<form method="post" action="/requests" novalidate>
-  {{ m.csrf(csrf_token) }}
-  <input type="hidden" name="resource_id" value="{{ resource.id }}">
+<div class="page-head">
+  <div>
+    <h1><span class="caption">Request access to</span> {{ resource.name }}</h1>
+    <p class="page-intro">{{ resource.description }}</p>
+  </div>
+</div>
+<div class="form-layout">
+  <form class="card form-card" method="post" action="/requests" novalidate>
+    {{ m.csrf(csrf_token) }}
+    <input type="hidden" name="resource_id" value="{{ resource.id }}">
 
-  {% set role_error = errors.get("role") %}
-  <div class="field{% if role_error %} field-error{% endif %}">
-    <fieldset class="fieldset" aria-describedby="role-hint{% if role_error %} role-error{% endif %}">
-      <legend class="legend">What level of access do you need?</legend>
-      <div id="role-hint" class="hint">Ask for the lowest level that lets you do the job.</div>
-      {{ m.error_message(errors, "role", "role") }}
-      <div class="radios">
-        {% for role in resource.roles %}
-        <div class="radio">
-          <input class="radio-input" type="radio" id="role-{{ role.value }}" name="role" value="{{ role.value }}" aria-describedby="role-{{ role.value }}-hint"{% if form.get("role") == role.value %} checked{% endif %}>
-          <label class="radio-label" for="role-{{ role.value }}">{{ role.value|capitalize }}</label>
-          <div id="role-{{ role.value }}-hint" class="hint radio-hint">{{ ROLE_DESCRIPTIONS[role] }}</div>
+    {% set role_error = errors.get("role") %}
+    <div class="field{% if role_error %} field-error{% endif %}">
+      <fieldset class="fieldset" aria-describedby="role-hint{% if role_error %} role-error{% endif %}">
+        <legend class="legend">What level of access do you need?</legend>
+        <div id="role-hint" class="hint">Ask for the lowest level that lets you do the job.</div>
+        {{ m.error_message(errors, "role", "role") }}
+        <div class="choices">
+          {% for role in resource.roles %}
+          {% set route = route_for(role, routes) %}
+          <div class="choice">
+            <input class="radio-input choice-input" type="radio" id="role-{{ role.value }}" name="role" value="{{ role.value }}" aria-describedby="role-{{ role.value }}-hint"{% if form.get("role") == role.value %} checked{% endif %}>
+            <label class="choice-label" for="role-{{ role.value }}">{{ role.value|capitalize }}</label>
+            <div id="role-{{ role.value }}-hint" class="choice-hint">
+              <span class="choice-desc">{{ ROLE_DESCRIPTIONS[role] }}</span>
+              {% if route %}<span class="choice-route choice-route-{{ route.outcome.value }}">{{ route.short }}</span>{% endif %}
+            </div>
+          </div>
+          {% endfor %}
         </div>
+      </fieldset>
+    </div>
+
+    {% set hours_error = errors.get("hours") %}
+    <div class="field{% if hours_error %} field-error{% endif %}">
+      <fieldset class="fieldset" aria-describedby="hours-hint{% if hours_error %} hours-error{% endif %}">
+        <legend class="legend">For how long?</legend>
+        <div id="hours-hint" class="hint">Up to {{ resource.max_hours|duration }}. Access ends on its own, and you can give it back early.</div>
+        {{ m.error_message(errors, "hours", "hours") }}
+        <div class="pills">
+          {% for h in presets %}
+          <div class="pill">
+            <input class="radio-input pill-input" type="radio" id="hours-{{ h }}" name="hours" value="{{ h }}"{% if hours_choice == h|string %} checked{% endif %}>
+            <label class="pill-label" for="hours-{{ h }}">{{ h|short_duration }}</label>
+          </div>
+          {% endfor %}
+          <div class="pill">
+            <input class="radio-input pill-input" type="radio" id="hours-other" name="hours" value="other"{% if hours_choice == "other" %} checked{% endif %}>
+            <label class="pill-label" for="hours-other">Other</label>
+          </div>
+        </div>
+        <div class="other-hours">
+          <label class="label label-small" for="hours">How many hours?</label>
+          <input class="input input-short{% if hours_error %} input-error{% endif %}" id="hours" name="hours_other" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" value="{{ form.get('hours', '') if hours_choice == 'other' else '' }}" aria-describedby="hours-hint{% if hours_error %} hours-error{% endif %}"{% if hours_error %} aria-invalid="true"{% endif %}>
+        </div>
+      </fieldset>
+    </div>
+
+    {% set why_error = errors.get("justification") %}
+    <div class="field{% if why_error %} field-error{% endif %}">
+      <label class="label" for="justification">Why do you need it?</label>
+      <div id="justification-hint" class="hint">Approvers will read this. Say what you will do, and include a ticket number if you have one. Use 10 to 500 characters.</div>
+      {{ m.error_message(errors, "justification", "justification") }}
+      <textarea class="textarea{% if why_error %} input-error{% endif %}" id="justification" name="justification" rows="4" aria-describedby="justification-hint{% if why_error %} justification-error{% endif %}"{% if why_error %} aria-invalid="true"{% endif %}>{{ form.get("justification", "") }}</textarea>
+    </div>
+
+    <section class="route-summary" aria-labelledby="route-heading">
+      <h2 id="route-heading" class="route-heading">{{ m.icon("users") }} Who will approve this</h2>
+      <p class="route-basis">{{ policy_basis(resource) }}</p>
+      {% for option in routes %}
+      <div class="route-option">
+        <p class="route-roles"><strong>{{ option.roles|map(attribute="value")|join(" or ")|capitalize }} access:</strong>
+          {% if option.outcome.value == "auto_approve" %}approved instantly, no one needs to approve it.
+          {% elif option.outcome.value == "deny" %}not available to you right now.
+          {% else %}{{ plural(option.approvers|length, "approval") }}, each from a different person.{% endif %}</p>
+        {% if option.approvers %}
+        <ol class="route-steps">
+          {% for line in option.approvers %}
+          <li>{{ line }}</li>
+          {% endfor %}
+        </ol>
+        {% endif %}
+        {% for note in option.notes %}
+        <p class="route-note">{{ note }}</p>
         {% endfor %}
       </div>
-    </fieldset>
-  </div>
+      {% endfor %}
+      <p class="route-after">{{ m.icon("clock") }} Once approved, access starts at once and ends by itself after the time you choose.</p>
+    </section>
 
-  {% set hours_error = errors.get("hours") %}
-  <div class="field{% if hours_error %} field-error{% endif %}">
-    <label class="label" for="hours">For how many hours?</label>
-    <div id="hours-hint" class="hint">Up to {{ resource.max_hours|duration }}. Access ends on its own, and you can give it back early.</div>
-    {{ m.error_message(errors, "hours", "hours") }}
-    <input class="input input-short{% if hours_error %} input-error{% endif %}" id="hours" name="hours" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" value="{{ form.get('hours', '') }}" aria-describedby="hours-hint{% if hours_error %} hours-error{% endif %}"{% if hours_error %} aria-invalid="true"{% endif %}>
-  </div>
+    <button type="submit" class="button button-lg">Send request</button>
+  </form>
 
-  {% set why_error = errors.get("justification") %}
-  <div class="field{% if why_error %} field-error{% endif %}">
-    <label class="label" for="justification">Why do you need it?</label>
-    <div id="justification-hint" class="hint">Approvers will read this. Say what you will do, and include a ticket number if you have one. Use 10 to 500 characters.</div>
-    {{ m.error_message(errors, "justification", "justification") }}
-    <textarea class="textarea{% if why_error %} input-error{% endif %}" id="justification" name="justification" rows="4" aria-describedby="justification-hint{% if why_error %} justification-error{% endif %}"{% if why_error %} aria-invalid="true"{% endif %}>{{ form.get("justification", "") }}</textarea>
+  <div class="form-aside">
+    <section class="card" aria-labelledby="about-heading">
+      <h2 id="about-heading" class="card-title-sm">About this system</h2>
+      <dl class="facts facts-stacked">
+        <div><dt>Owner</dt><dd>{{ owner.name if owner else resource.owner_id }}</dd></div>
+        <div><dt>Sensitivity</dt><dd>{{ m.sensitivity_tag(resource.sensitivity) }}</dd></div>
+        <div><dt>Who approves</dt><dd>{{ route_text(resource, user) }}.</dd></div>
+        <div><dt>Longest access</dt><dd>{{ resource.max_hours|duration }}</dd></div>
+        <div><dt>Your manager</dt><dd>{% if manager %}{{ manager.name }}{% else %}None on file, so security approves instead{% endif %}</dd></div>
+      </dl>
+    </section>
   </div>
-
-  <button type="submit" class="button">Send request</button>
-</form>
+</div>
 {% endblock %}

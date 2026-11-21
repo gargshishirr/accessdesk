@@ -9,6 +9,7 @@ from fastapi.responses import RedirectResponse, Response
 
 from accessdesk.models import APPROVER_LABELS, REASON_TEXT, Outcome, RequestStatus, Resource, User
 from accessdesk.service import (
+    AccessService,
     ActionResult,
     Conflict,
     Forbidden,
@@ -17,8 +18,22 @@ from accessdesk.service import (
     RequestPage,
     ValidationFailed,
 )
+from accessdesk.web import demo
 from accessdesk.web.security import csrf_protect
-from accessdesk.web.ui import flash, get_metrics, get_service, render, require_user
+from accessdesk.web.ui import (
+    approver_lines,
+    explain,
+    flash,
+    get_metrics,
+    get_service,
+    hour_presets,
+    join_words,
+    render,
+    require_user,
+    route_options,
+    timeline,
+    waiting_for,
+)
 
 router = APIRouter(include_in_schema=False)
 CSRF = [Depends(csrf_protect)]
@@ -40,16 +55,25 @@ def _version(raw: str) -> int | None:
 def home(request: Request) -> Response:
     user = require_user(request)
     service = get_service(request)
+    if not request.app.state.settings.sso:
+        demo.record_visit(request.session, service, user)
     active, ended = service.my_grants(user.id)
+    requests = service.my_requests(user.id)
     return render(
         request,
         "home.html",
-        "My access",
+        "Home",
         user=user,
         active_nav="home",
         grants=active,
         ended=ended,
-        requests=service.my_requests(user.id),
+        requests=requests,
+        open_requests=[r for r in requests if r.status is RequestStatus.PENDING],
+        grant_for={g.request_id: g for g in [*active, *ended]},
+        pending=service.pending_for(user.id),
+        activity=service.activity_for(user.id),
+        resources_by_id={r.id: r for r in service.resources()},
+        show_tour_strip=False,
     )
 
 
@@ -88,17 +112,20 @@ def submit_request(
     resource_id: FormText = "",
     role: FormText = "",
     hours: FormText = "",
+    hours_other: FormText = "",
     justification: FormText = "",
 ) -> Response:
     user = require_user(request)
     service = get_service(request)
+    # "hours" is a preset button's value; "other" (or no button chosen) means the typed number counts.
+    chosen_hours = hours_other if hours in ("", "other") else hours
     try:
-        result = service.submit(user.id, resource_id, role, hours, justification)
+        result = service.submit(user.id, resource_id, role, chosen_hours, justification)
     except ValidationFailed as exc:
         chosen = service.resource(resource_id)
         if chosen is None or not chosen.active:
             return _catalog(request, user, errors={"resource_id": exc.errors["resource_id"]}, status_code=422)
-        form = {"role": role, "hours": hours, "justification": justification}
+        form = {"role": role, "hours": chosen_hours, "hours_choice": hours, "justification": justification}
         return _request_form(request, user, chosen, form=form, errors=exc.errors, status_code=422)
 
     get_metrics(request).requests.labels(result.decision.outcome.value).inc()
@@ -106,8 +133,15 @@ def submit_request(
     if decision.outcome is Outcome.AUTO_APPROVE:
         flash(request, "success", f"Access granted. {REASON_TEXT[decision.reasons[0]]}")
     elif decision.outcome is Outcome.NEEDS_APPROVAL:
-        steps = ", ".join(APPROVER_LABELS[k].lower() for k in decision.approvals)
-        flash(request, "success", f"Request #{result.request_id} sent. It needs approval from: {steps}.")
+        chosen = service.resource(resource_id)
+        users = {u.id: u for u in service.users()}
+        lines = (
+            approver_lines(decision.approvals, user, chosen, users, you=True)
+            if chosen
+            else [APPROVER_LABELS[k].lower() for k in decision.approvals]
+        )
+        who = join_words(lines)
+        flash(request, "success", f"Request #{result.request_id} sent. It needs approval from {who}.")
     else:
         flash(
             request,
@@ -120,6 +154,9 @@ def submit_request(
 def _catalog(
     request: Request, user: User, *, errors: dict[str, str] | None = None, status_code: int = 200
 ) -> Response:
+    service = get_service(request)
+    active, _ = service.my_grants(user.id)
+    waiting = [r for r in service.my_requests(user.id) if r.status is RequestStatus.PENDING]
     return render(
         request,
         "catalog.html",
@@ -127,7 +164,9 @@ def _catalog(
         status_code=status_code,
         user=user,
         active_nav="new",
-        resources=get_service(request).resources(active_only=True),
+        resources=service.resources(active_only=True),
+        held={g.resource.id: g for g in reversed(active)},
+        waiting_for={r.resource.id: r for r in waiting},
         errors=errors or {},
         error_anchors={"resource_id": "catalog"},
     )
@@ -143,6 +182,13 @@ def _request_form(
     status_code: int = 200,
 ) -> Response:
     service = get_service(request)
+    users = {u.id: u for u in service.users()}
+    form = form or {}
+    presets = hour_presets(resource.max_hours)
+    typed = form.get("hours", "")
+    choice = form.get("hours_choice", "")
+    if choice not in {str(h) for h in presets}:
+        choice = "other" if typed or choice == "other" else ""
     return render(
         request,
         "request_form.html",
@@ -151,9 +197,13 @@ def _request_form(
         user=user,
         active_nav="new",
         resource=resource,
-        owner=service.user(resource.owner_id),
-        manager=service.user(user.manager_id) if user.manager_id else None,
-        form=form or {},
+        owner=users.get(resource.owner_id),
+        manager=users.get(user.manager_id) if user.manager_id else None,
+        routes=route_options(service.preview(user.id, resource.id), user, resource, users),
+        presets=presets,
+        hours_choice=choice,
+        here=f"/requests/new?resource={resource.id}",  # also after a failed post to /requests
+        form=form,
         errors=errors or {},
         error_anchors={"role": f"role-{resource.roles[0].value}"},
     )
@@ -198,7 +248,7 @@ def decide(
         latest = service.request_page(request_id, user.id).request
         flash(request, "error", f"Request #{request_id} was not approved. {REASON_TEXT[latest.reasons[-1]]}")
     else:
-        flash(request, "success", _decision_message(result, page))
+        flash(request, "success", _decision_message(result, page, service))
     return see_other(f"/requests/{request_id}")
 
 
@@ -214,14 +264,15 @@ def cancel(request: Request, request_id: int, version: FormText = "") -> Respons
     return see_other(f"/requests/{request_id}")
 
 
-def _decision_message(result: ActionResult, page: RequestPage) -> str:
+def _decision_message(result: ActionResult, page: RequestPage, service: AccessService) -> str:
     request = page.request
     if result.status is RequestStatus.APPROVED:
         who, what = request.requester.name, request.resource.name
         return f"Approved. {who} now has {request.role.value} access to {what}."
     if result.status is RequestStatus.PENDING:
-        steps = ", ".join(APPROVER_LABELS[k].lower() for k in result.remaining)
-        return f"Your approval is recorded. Still waiting for: {steps}."
+        latest = service.request_page(request.id, request.requester.id)
+        waiting = waiting_for(latest, {u.id: u for u in service.users()})
+        return f"Your approval is recorded. Still waiting for {join_words(waiting)}."
     return f"Request #{request.id} denied. {request.requester.name} can see your reason."
 
 
@@ -235,6 +286,12 @@ def _detail(
     status_code: int = 200,
 ) -> Response:
     view = page.request
+    service = get_service(request)
+    if not request.app.state.settings.sso:
+        demo.record_visit(request.session, service, user, request_id=view.id)
+    users = {u.id: u for u in service.users()}
+    now = service.clock.now()
+    headline, reasons = explain(page, users, now, user)
     return render(
         request,
         "request.html",
@@ -243,6 +300,9 @@ def _detail(
         user=user,
         page=page,
         r=view,
+        moments=timeline(page, users, now),
+        headline=headline,
+        reasons=reasons,
         form=form or {},
         errors=errors or {},
         error_anchors={"decision": "decision-approve", "comment": "comment"},
@@ -315,7 +375,10 @@ def revoke(request: Request, grant_id: int, note: FormText = "") -> Response:
 @router.get("/audit")
 def audit_page(request: Request) -> Response:
     user = require_user(request)
-    events, verification = get_service(request).audit_log(user.id)
+    service = get_service(request)
+    events, verification = service.audit_log(user.id)
+    if not request.app.state.settings.sso:
+        demo.record_visit(request.session, service, user, audit=True)
     return render(
         request,
         "audit.html",
@@ -324,6 +387,7 @@ def audit_page(request: Request) -> Response:
         active_nav="audit",
         events=events,
         verification=verification,
+        resources_by_id={r.id: r for r in service.resources()},
     )
 
 

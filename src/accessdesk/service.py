@@ -142,6 +142,14 @@ class ActionResult:
 
 
 @dataclass(frozen=True, slots=True)
+class Activity:
+    """One audit entry, with the request it is about (if any) so it can be described in plain words."""
+
+    event: audit.AuditEvent
+    request: RequestView | None
+
+
+@dataclass(frozen=True, slots=True)
 class CheckResult:
     allowed: bool
     reason: str
@@ -661,7 +669,67 @@ class AccessService:
                 if kinds and policy.assign_slot(
                     self._required(row), self._filled(conn, row["id"]), approver_id, kinds
                 ):
-                    result.append(self._request_view(row, users, resources))
+                    approvals = self._approvals(conn, row["id"], users)
+                    result.append(self._request_view(row, users, resources, approvals))
+        return result
+
+    def preview(self, requester_id: str, resource_id: str) -> dict[Role, Decision]:
+        """What the policy would decide right now for each role the resource offers, so the request form
+        can say who will approve before anything is sent. Reads only; nothing is saved or audited."""
+        now = self.clock.now()
+        with self.db.connection() as conn:
+            requester = self._get_active_user(conn, requester_id)
+            row = conn.execute(
+                "SELECT * FROM resources WHERE id = ? AND active = 1", (resource_id,)
+            ).fetchone()
+            if row is None:
+                raise NotFound("That resource was not found.")
+            resource = _resource(row)
+            context = self._context(conn, requester, now)
+        return {
+            role: policy.evaluate(Draft(requester, resource, role, 1, ""), context) for role in resource.roles
+        }
+
+    def activity_for(self, user_id: str, limit: int = 8) -> list[Activity]:
+        """Recent audit entries about this person: what they did, and what happened to their own requests
+        and access. Newest first."""
+        with self.db.connection() as conn:
+            users, resources = self._directory(conn)
+            rows = conn.execute(
+                "SELECT * FROM audit_log WHERE actor = ? "
+                "OR subject IN (SELECT 'request:' || id FROM requests WHERE requester_id = ?) "
+                "OR subject IN (SELECT 'grant:' || id FROM grants WHERE user_id = ?) "
+                "ORDER BY seq DESC LIMIT ?",
+                (user_id, user_id, user_id, limit),
+            ).fetchall()
+            request_ids = {
+                int(r["subject"].split(":", 1)[1]) for r in rows if r["subject"].startswith("request:")
+            }
+            request_ids |= {
+                int(json.loads(r["details"]).get("request", 0))
+                for r in rows
+                if r["subject"].startswith("grant:")
+            }
+            marks = ",".join("?" * len(request_ids))
+            views = {
+                r["id"]: self._request_view(r, users, resources)
+                for r in conn.execute(
+                    f"SELECT * FROM requests WHERE id IN ({marks})",  # noqa: S608
+                    tuple(request_ids),
+                )
+            }
+        result: list[Activity] = []
+        for r in rows:
+            event = audit.AuditEvent(
+                r["seq"], r["ts"], r["actor"], r["action"], r["subject"], json.loads(r["details"]), r["hash"]
+            )
+            kind, _, ident = r["subject"].partition(":")
+            request_id = (
+                int(ident)
+                if kind == "request" and ident.isdigit()
+                else int(event.details.get("request", 0) or 0)
+            )
+            result.append(Activity(event, views.get(request_id)))
         return result
 
     def request_page(self, request_id: int, viewer_id: str) -> RequestPage:
@@ -1017,6 +1085,17 @@ class AccessService:
                 (request_id,),
             )
         ]
+
+    @staticmethod
+    def _approvals(
+        conn: sqlite3.Connection, request_id: int, users: dict[str, User]
+    ) -> tuple[ApprovalView, ...]:
+        return tuple(
+            ApprovalView(
+                users[a["approver_id"]], ApproverKind(a["kind"]), a["verdict"], a["comment"], a["created_at"]
+            )
+            for a in conn.execute("SELECT * FROM approvals WHERE request_id = ? ORDER BY id", (request_id,))
+        )
 
     @staticmethod
     def _slots(required: tuple[ApproverKind, ...], approvals: tuple[ApprovalView, ...]) -> tuple[Slot, ...]:

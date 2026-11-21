@@ -1,30 +1,40 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Approvals</h1>
-{% if pending %}
-<p class="lead">{{ plural(pending|length, "request") }} waiting for your decision.</p>
-<div class="table-wrap" role="region" aria-labelledby="pending-caption" tabindex="0">
-  <table class="table">
-    <caption id="pending-caption" class="visually-hidden">Requests waiting for your decision</caption>
-    <thead>
-      <tr><th scope="col">Request</th><th scope="col">From</th><th scope="col">Resource</th><th scope="col">Sensitivity</th><th scope="col">Access</th><th scope="col">Duration</th><th scope="col">Submitted</th></tr>
-    </thead>
-    <tbody>
-      {% for r in pending %}
-      <tr>
-        <th scope="row"><a href="/requests/{{ r.id }}">#{{ r.id }}<span class="visually-hidden"> from {{ r.requester.name }}</span></a></th>
-        <td>{{ r.requester.name }}</td>
-        <td>{{ r.resource.name }}</td>
-        <td>{{ m.sensitivity_tag(r.resource.sensitivity) }}</td>
-        <td>{{ r.role.value|capitalize }}</td>
-        <td>{{ r.hours|duration }}</td>
-        <td>{{ m.time(r.created_at) }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="page-head">
+  <div>
+    <h1>Approvals</h1>
+    {% if pending %}
+    <p class="page-intro">{{ plural(pending|length, "request") }} waiting for your decision.</p>
+    {% endif %}
+  </div>
 </div>
+{% if pending %}
+<ul class="request-cards">
+  {% for r in pending %}
+  <li class="request-card">
+    <div class="request-card-head">
+      {{ m.avatar(r.requester.name) }}
+      <div class="request-card-who">
+        <h2 class="request-card-title">{{ r.requester.name }} <span class="muted">wants {{ r.role.value }} access to</span> {{ r.resource.name }}</h2>
+        <p class="meta">{{ m.sensitivity_tag(r.resource.sensitivity) }} {{ r.requester.title }} · #{{ r.id }} · asked {{ ago(r.created_at, now) }}</p>
+      </div>
+    </div>
+    <p class="quote">“{{ r.justification }}”</p>
+    <div class="request-card-foot">
+      <ul class="slots" aria-label="Approvals for request #{{ r.id }}">
+        {% for kind, who in slot_progress(r) %}
+        <li class="slot{% if who %} slot-done{% endif %}">{{ m.icon("check" if who else "clock") }} {{ APPROVER_LABELS[kind] }}{% if who %}<span class="visually-hidden">: approved by</span><span class="slot-who"> {{ who }}</span>{% else %}<span class="visually-hidden">: waiting</span>{% endif %}</li>
+        {% endfor %}
+      </ul>
+      <p class="request-card-duration">{{ m.icon("clock") }} {{ r.hours|duration }}</p>
+      <a class="button button-small" href="/requests/{{ r.id }}">Review<span class="visually-hidden"> request #{{ r.id }} from {{ r.requester.name }}</span></a>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
 {% else %}
-<p class="lead">Nothing is waiting for you.</p>
+<div class="card">
+  {{ m.empty("inbox", "Nothing is waiting for you", "When someone needs your approval, their request appears here.") }}
+</div>
 {% endif %}
 {% endblock %}

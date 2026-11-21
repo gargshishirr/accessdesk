@@ -28,9 +28,10 @@ from accessdesk.oidc import (
     SignInError,
     safe_code,
 )
+from accessdesk.web import demo
 from accessdesk.web.ratelimit import client_address
 from accessdesk.web.security import csrf_protect, safe_next
-from accessdesk.web.ui import current_user, flash, get_metrics, get_service, render
+from accessdesk.web.ui import current_user, flash, get_metrics, get_service, render, require_user
 
 log = logging.getLogger("accessdesk")
 
@@ -146,8 +147,38 @@ def signin_form(request: Request, next_url: Annotated[str, Query(alias="next")] 
     if request.app.state.settings.sso:
         query = "" if target == "/" else "?" + urlencode({"next": target})
         return render(request, "signin_sso.html", "Sign in", login_url=f"/auth/login{query}")
-    people = get_service(request).users(active_only=True)
-    return render(request, "signin.html", "Sign in", people=people, next_url=target)
+    return _picker(request, "Sign in", target)
+
+
+def _picker(
+    request: Request,
+    title: str,
+    next_url: str,
+    *,
+    status_code: int = 200,
+    errors: dict[str, str] | None = None,
+    switching: bool = False,
+) -> Response:
+    """The demo person picker: persona cards for the main characters, then everyone else."""
+    service = get_service(request)
+    people = service.users(active_only=True)
+    cast = demo.personas(people, service.resources(active_only=True))
+    waiting = {p.user.id: len(service.pending_for(p.user.id)) for p in cast}
+    guided = bool(cast) and cast[0].user.id == demo.PERSONA_SPECS[0][0] and demo.tour(service, people, None)
+    return render(
+        request,
+        "signin.html",
+        title,
+        status_code=status_code,
+        people=people,
+        cast=cast,
+        cast_waiting=waiting,
+        guided=bool(guided),
+        next_url=next_url,
+        switching=switching,
+        errors=errors or {},
+        error_anchors={"user_id": f"user-{people[0].id}" if people else "main"},
+    )
 
 
 @router.post("/signout", dependencies=CSRF)
@@ -179,19 +210,19 @@ def demo_signin(
     service = get_service(request)
     user = service.user(user_id) if user_id else None
     if user is None or not user.active:
-        people = service.users(active_only=True)
-        return render(
-            request,
-            "signin.html",
-            "Sign in",
-            status_code=422,
-            people=people,
-            next_url=safe_next(next_url),
-            errors={"user_id": "Choose who you want to sign in as"},
-            error_anchors={"user_id": f"user-{people[0].id}" if people else "main"},
-        )
+        errors = {"user_id": "Choose who you want to sign in as"}
+        return _picker(request, "Sign in", safe_next(next_url), status_code=422, errors=errors)
+    # Switching person keeps the guided demo's progress: request numbers, never credentials.
+    progress = demo.kept_progress(request.session)
     begin_session(request, user, "demo")
+    request.session.update(progress)
     return see_other(safe_next(next_url))
+
+
+@demo_router.get("/switch")
+def switch_person(request: Request) -> Response:
+    require_user(request)
+    return _picker(request, "Switch person", "/", switching=True)
 
 
 # ----------------------------------------------------------------------------- single sign-on

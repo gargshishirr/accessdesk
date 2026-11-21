@@ -113,36 +113,59 @@ def submit_empty(path: str, button: str) -> Callable[[Page, str], Any]:
     return go
 
 
+def choose_other_hours(page: Page, base: str) -> None:
+    page.goto(base + "/requests/new?resource=prod-db")
+    assert not page.is_visible("#hours")  # hidden until "Other" is chosen
+    page.check("#hours-other")
+    assert page.is_visible("#hours")
+
+
+def open_switcher(page: Page, base: str) -> None:
+    page.goto(base + "/")
+    page.locator(".switcher-toggle").click()
+    page.wait_for_selector(".switcher-panel", state="visible")
+
+
 def signed_out(page: Page, base: str) -> None:
     page.get_by_role("button", name="Sign out").click()
     page.wait_for_selector(".notice")
 
 
-# Demo data ids: request 2 = Alice's pending prod-db request, 3 = approved, 4 = denied by separation
-# of duties, 6 = Erin's payroll request waiting for Bob; grant 2 = Alice's payments-ledger access.
+# Demo data ids (seed.py): request 2 = Alice's approved payments-ledger access (grant 2, which Frank can
+# remove), 3 = refused by separation of duties, 5 = Erin's revoked access, 6 = Alice's expired access,
+# 7 = Erin's critical payroll request waiting for Bob, 8 = Leo's admin request waiting for two security
+# approvals, 11 = Alice's request waiting for Bob.
 STATES: list[tuple[str, str | None, Callable[[Page, str], Any]]] = [
     ("sign-in", None, visit("/signin")),
     ("sign-in-error", None, submit_empty("/signin", "Sign in")),
     ("accessibility-statement", None, visit("/accessibility")),
     ("signed-out-notice", "alice", signed_out),
     ("my-access", "alice", visit("/")),
+    ("switch-person", "alice", visit("/switch")),
+    ("switcher-open", "alice", open_switcher),
     ("catalogue", "alice", visit("/requests/new")),
     ("request-form", "alice", visit("/requests/new?resource=prod-db")),
+    ("request-form-other-hours", "alice", choose_other_hours),
     ("request-form-errors", "alice", submit_empty("/requests/new?resource=prod-db", "Send request")),
-    ("request-pending", "alice", visit("/requests/2")),
-    ("request-approved", "alice", visit("/requests/3")),
-    ("request-denied", "alice", visit("/requests/4")),
+    ("request-pending", "alice", visit("/requests/11")),
+    ("request-approved", "alice", visit("/requests/2")),
+    ("request-denied", "alice", visit("/requests/3")),
+    ("request-expired", "alice", visit("/requests/6")),
     ("approvals-empty", "alice", visit("/approvals")),
     ("forbidden", "alice", visit("/audit")),
     ("not-found", "alice", visit("/no-such-page")),
+    ("home-approver", "bob", visit("/")),
     ("approvals", "bob", visit("/approvals")),
-    ("decision-form", "bob", visit("/requests/6")),
-    ("decision-errors", "bob", submit_empty("/requests/6", "Submit decision")),
+    ("decision-form", "bob", visit("/requests/7")),
+    ("decision-errors", "bob", submit_empty("/requests/7", "Submit decision")),
     ("reviews-owner", "frank", visit("/reviews")),
     ("revoke-form", "frank", visit("/grants/2/revoke")),
     ("revoke-errors", "frank", submit_empty("/grants/2/revoke", "Remove access")),
     ("audit-log", "dan", visit("/audit")),
     ("reviews-security", "dan", visit("/reviews")),
+    ("request-revoked", "dan", visit("/requests/5")),
+    ("request-two-security-steps", "dan", visit("/requests/8")),
+    ("home-security", "dan", visit("/")),
 ]
 
 
@@ -237,7 +260,7 @@ def choose_radio(page: Page, name: str, value: str) -> None:
             break
         page.keyboard.press("ArrowDown")
     page.keyboard.press("Space")
-    assert page.is_checked(f'input[name="{name}"][value="{value}"]')
+    assert page.is_checked(f'input[type="radio"][name="{name}"][value="{value}"]')
 
 
 def keyboard_sign_in(page: Page, base: str, user: str) -> None:
@@ -279,15 +302,16 @@ def test_request_and_approve_with_the_keyboard_only(browser: Browser, fresh_serv
     tab_to(page, 'a[href="/requests/new?resource=prod-db"]')
     page.keyboard.press("Enter")
     page.wait_for_url("**/requests/new?resource=prod-db")
-    choose_radio(page, "role", "editor")  # the demo data already has her viewer request pending
+    choose_radio(page, "role", "editor")
+    choose_radio(page, "hours", "other")  # reveals the number box, with no script
     tab_to(page, "#hours")
-    page.keyboard.type("8")
+    page.keyboard.type("5")
     tab_to(page, "#justification")
     page.keyboard.type("Reading the payments table for incident INC-2041.")
     tab_to(page, 'form[action="/requests"] button[type="submit"]')
     page.keyboard.press("Enter")
-    page.wait_for_url(f"{base}/requests/7")
-    notice_has_focus(page, "Request #7 sent")
+    page.wait_for_url(f"{base}/requests/12")
+    notice_has_focus(page, "Request #12 sent")
     keyboard_sign_out(page, base)
 
     for approver, message in [
@@ -298,14 +322,65 @@ def test_request_and_approve_with_the_keyboard_only(browser: Browser, fresh_serv
         tab_to(page, 'nav a[href="/approvals"]')
         page.keyboard.press("Enter")
         page.wait_for_url(f"{base}/approvals")
-        tab_to(page, 'a[href="/requests/7"]')
+        tab_to(page, 'a[href="/requests/12"]')
         page.keyboard.press("Enter")
-        page.wait_for_url(f"{base}/requests/7")
+        page.wait_for_url(f"{base}/requests/12")
         choose_radio(page, "decision", "approve")
-        tab_to(page, 'form[action="/requests/7/decision"] button[type="submit"]')
+        tab_to(page, 'form[action="/requests/12/decision"] button[type="submit"]')
         page.keyboard.press("Enter")
         notice_has_focus(page, message)
         keyboard_sign_out(page, base)
+    context.close()
+
+
+def test_the_guided_demo_by_clicking_its_buttons(browser: Browser, fresh_server: str) -> None:
+    """A visitor follows the 60-second checklist using only its buttons, and every stop stays accessible."""
+    base = fresh_server
+    context = browser.new_context(viewport=DESKTOP)  # type: ignore[arg-type]
+    page = context.new_page()
+
+    def stop(label: str) -> None:
+        assert_accessible_at_both_widths(page)
+        page.set_viewport_size(DESKTOP)  # type: ignore[arg-type]
+        assert page.locator("h1").count() == 1, label
+
+    page.goto(f"{base}/signin")
+    page.get_by_role("button", name="Start the guided demo").click()
+    page.wait_for_url(f"{base}/")
+    assert "0 of 5" in page.locator(".tour-count").inner_text()
+    stop("home at the start")
+
+    page.locator(".tour-next").get_by_role("link", name="Ask for Production Database").click()
+    page.wait_for_url("**/requests/new?resource=prod-db")
+    page.check("#role-viewer")
+    page.check("#hours-4")
+    page.fill("#justification", "Checking the failed payouts for INC-2041.")
+    page.get_by_role("button", name="Send request").click()
+    page.wait_for_url(f"{base}/requests/12")
+    stop("request sent")
+
+    for approver in ("Bob Singh", "Frank Moreau"):
+        page.locator(".tour-strip").get_by_role("button", name=f"Continue as {approver}").click()
+        page.wait_for_url(f"{base}/requests/12")
+        stop(f"{approver} reviewing")
+        page.check("#decision-approve")
+        page.get_by_role("button", name="Submit decision").click()
+        page.wait_for_selector(".notice")
+
+    page.locator(".tour-strip").get_by_role("button", name="Continue as Alice Chen").click()
+    page.wait_for_url(f"{base}/requests/12")
+    assert "4 hours left" in page.locator(".access-card").inner_text()
+    stop("the access counting down")
+
+    page.locator(".tour-strip").get_by_role("button", name="Continue as Dan Okafor").click()
+    page.wait_for_url(f"{base}/audit")
+    assert "Guided demo complete" in page.locator("main").inner_text()
+    stop("audit log at the end")
+    page.locator(".switcher-toggle").click()
+    page.locator(".switcher-panel").get_by_role("button", name="Alice Chen").click()
+    page.wait_for_url(f"{base}/")
+    assert "5 of 5" in page.locator(".tour-count").inner_text()
+    stop("home at the end")
     context.close()
 
 

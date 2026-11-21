@@ -27,7 +27,7 @@ from accessdesk.web import api, auth, pages
 from accessdesk.web.metrics import Metrics, MetricsMiddleware
 from accessdesk.web.ratelimit import Limits
 from accessdesk.web.security import ApiKeys, CsrfFailed, SecurityHeaders, redact_access_log, require_api_key
-from accessdesk.web.ui import WEB_DIR, SignInRequired, render, templates
+from accessdesk.web.ui import BASE_CONTEXT, WEB_DIR, SignInRequired, render, templates
 
 log = logging.getLogger("accessdesk")
 
@@ -194,9 +194,7 @@ def create_app(
     async def on_http_error(request: Request, exc: StarletteHTTPException) -> Response:
         if _is_machine_path(request):
             return await http_exception_handler(request, exc)
-        message = (
-            "Check the web address, or go back to My access." if exc.status_code == 404 else str(exc.detail)
-        )
+        message = "Check the web address, or go back home." if exc.status_code == 404 else str(exc.detail)
         return await asyncio.to_thread(_error_page, request, exc.status_code, message, exc.headers)
 
     @app.exception_handler(RequestValidationError)
@@ -204,9 +202,7 @@ def create_app(
         if _is_machine_path(request):
             return await request_validation_exception_handler(request, exc)
         # Only malformed web addresses (like /requests/abc) reach here; forms validate their own fields.
-        return await asyncio.to_thread(
-            _error_page, request, 404, "Check the web address, or go back to My access."
-        )
+        return await asyncio.to_thread(_error_page, request, 404, "Check the web address, or go back home.")
 
     @app.exception_handler(Exception)
     def on_unexpected_error(request: Request, exc: Exception) -> Response:
@@ -217,24 +213,13 @@ def create_app(
             request,
             "error.html",
             {
+                **BASE_CONTEXT,
                 "title": "Sorry, there is a problem with the service",
                 "heading": "Sorry, there is a problem with the service",
                 "message": (
                     "Try again later. Each change is saved completely or not at all, "
                     "so nothing was half-saved."
                 ),
-                "user": None,
-                "demo_mode": False,
-                "errors": {},
-                "error_anchors": {},
-                "form": {},
-                "active_nav": "",
-                "flash": None,
-                "csrf_token": "",
-                "now": 0,
-                "waiting": 0,
-                "can_review": False,
-                "names": {},
             },
             status_code=500,
         )

@@ -32,22 +32,30 @@ Other systems can ask AccessDesk "does this person have this access right now?" 
 Select **Sign in with your company account**. You sign in on your company's usual page and come straight
 back to AccessDesk.
 
-In **demo mode** a yellow banner says "anyone can sign in as anyone", and you pick a person from a list.
-Demo mode is only for trying AccessDesk, never for real data.
+In **demo mode** a yellow banner says "anyone can sign in as anyone". **Start the guided demo** signs you in
+as the requester, or pick one of the four demo characters (a requester, their manager, a resource owner and a
+security reviewer) with one click, or anyone else from the list below them. **Switch person** in the header
+changes who you are without signing out, and the **Try the full flow in 60 seconds** checklist on the home
+page tells you who to be at each step; its **Continue as** button switches person and opens the right page.
+Demo mode is only for trying AccessDesk, never for real data; none of this exists once single sign-on is on.
 
 ### Asking for access (everyone)
 
-1. Select **Request access** and choose a system.
-2. Choose the lowest level that does the job and the number of hours, and say why you need it.
-3. Select **Send request**. The next page shows who needs to approve it.
+1. Select **Request access** and choose a system. Each card shows its sensitivity, owner and access levels.
+2. Choose the lowest level that does the job, pick a length (or **Other** and type the hours), and say why
+   you need it. **Who will approve this** shows, by name, who the policy will ask for each level, before
+   you send anything.
+3. Select **Send request**. The request page shows a timeline of every step and why the policy chose it.
 
-Low-risk read access for some teams is granted at once. **My access** shows what you have and when it ends.
-Select **Give back now** if you finish early.
+Low-risk read access for some teams is granted at once. **Home** shows what you have, how long it has left
+(with a warning when it is about to end), what is waiting for you and recent activity. Select
+**Give back now** if you finish early.
 
 ### Approving requests (managers and owners)
 
 **Approvals** lists the requests waiting for you. Open one, choose **Approve** or **Deny** and add a comment
-(a comment is needed to deny). Access starts when every approver has said yes.
+(a comment is needed to deny). Each choice says what happens next, for example whether yours is the last
+approval. Access starts when every approver has said yes.
 
 ### Reviewing access (owners and the security team)
 
@@ -56,8 +64,8 @@ Select **Give back now** if you finish early.
 
 ### The audit log (security team)
 
-**Audit log** shows the latest changes and checks the whole hash chain every time it opens. "Chain intact"
-means nothing in the history was changed.
+**Audit log** shows the latest changes in plain words and checks the whole hash chain every time it opens.
+"Chain intact" means nothing in the history was changed.
 
 ### Other services (the API)
 

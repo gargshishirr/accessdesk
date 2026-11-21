@@ -1,0 +1,37 @@
+<section class="tour card" aria-labelledby="tour-heading">
+  <div class="tour-head">
+    <div class="tour-intro">
+      <p class="eyebrow">{{ m.icon("spark") }} Guided demo</p>
+      <h2 id="tour-heading">Try the full flow in 60 seconds</h2>
+      <p class="muted">Ask for risky access, have two different people approve it, watch it count down, then check the tamper-evident log. Each button signs you in as the right person.</p>
+    </div>
+    <div class="tour-progress">
+      <p class="tour-count"><strong>{{ tour.done_count }} of {{ tour.steps|length }}</strong> steps done</p>
+      <div class="meter meter-brand" aria-hidden="true"><span class="meter-fill w-{{ (tour.done_count * 20 / tour.steps|length)|round|int * 5 }}"></span></div>
+    </div>
+  </div>
+  {% if tour.note %}
+  <p class="tour-note">{{ m.icon("alert") }} {{ tour.note }}</p>
+  {% endif %}
+  {% if tour.current %}
+  <div class="tour-next">
+    <p class="tour-next-text"><strong>Next, step {{ tour.current_number }}:</strong> {{ tour.current.title }}. {{ tour.current.detail }}</p>
+    {{ m.tour_action(tour.current, user, csrf_token, here) }}
+  </div>
+  {% endif %}
+  <ol class="tour-steps">
+    {% for step in tour.steps %}
+    {% set current = not step.done and loop.index == tour.current_number %}
+    <li class="tour-step {{ 'is-done' if step.done else ('is-current' if current else 'is-todo') }}"{% if current %} aria-current="step"{% endif %}>
+      <span class="tour-marker" aria-hidden="true">{% if step.done %}{{ m.icon("check") }}{% else %}{{ loop.index }}{% endif %}</span>
+      <div class="tour-body">
+        <h3 class="tour-title"><span class="visually-hidden">{{ "Done" if step.done else ("Next step" if current else "To do") }}: </span>{{ step.title }}</h3>
+        <p class="tour-detail">{{ step.detail }}</p>
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+  {% if tour.complete %}
+  <p class="tour-complete">{{ m.icon("check") }} <span>That is the whole flow: the policy picked the approvers, two different people said yes, the access started with an end time, and the audit log proved nothing was changed. Ask for something else to go again.</span></p>
+  {% endif %}
+</section>
