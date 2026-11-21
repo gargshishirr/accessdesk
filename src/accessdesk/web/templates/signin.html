@@ -1,33 +1,88 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Sign in</h1>
-<p class="lead">Ask for temporary access to company systems, approve requests from your team and see who has access to what.</p>
-<form method="post" action="/signin" novalidate>
-  {{ m.csrf(csrf_token) }}
-  <input type="hidden" name="next" value="{{ next_url }}">
-  {% set user_error = errors.get("user_id") %}
-  <div class="field{% if user_error %} field-error{% endif %}">
-    <fieldset class="fieldset" aria-describedby="user-hint{% if user_error %} user_id-error{% endif %}">
-      <legend class="legend">Who are you?</legend>
-      <div id="user-hint" class="hint">This is a demo with no passwords, so you can be anyone. Real deployments use your company's single sign-on instead.</div>
-      {{ m.error_message(errors, "user_id", "user_id") }}
-      <div class="radios">
-        {% for person in people %}
-        <div class="radio">
-          <input class="radio-input" type="radio" id="user-{{ person.id }}" name="user_id" value="{{ person.id }}" aria-describedby="user-{{ person.id }}-hint">
-          <label class="radio-label" for="user-{{ person.id }}">{{ person.name }}</label>
-          <div id="user-{{ person.id }}-hint" class="hint radio-hint">{{ person.title }}, {{ person.team }}{% if person.is_security %} (security team){% endif %}</div>
-        </div>
-        {% endfor %}
-      </div>
-    </fieldset>
+<div class="hero">
+  <div class="hero-text">
+    <p class="eyebrow">{{ m.icon("spark") }} {{ "Live demo" if not switching else "Demo" }}</p>
+    <h1>{% if switching %}Switch person{% else %}Sign in to the AccessDesk demo{% endif %}</h1>
+    {% if switching and user %}
+    <p class="hero-lead">You are viewing as {{ user.name }}. Pick someone else to see the demo through their eyes.</p>
+    {% else %}
+    <p class="hero-lead">Temporary access to internal systems: the right people approve it, it ends on its own, and every step lands in a tamper-evident audit log.</p>
+    {% if guided %}
+    <form class="hero-cta" method="post" action="/signin">
+      {{ m.csrf(csrf_token) }}
+      <input type="hidden" name="next" value="/">
+      <input type="hidden" name="user_id" value="{{ cast[0].user.id }}">
+      <button type="submit" class="button button-lg">Start the guided demo {{ m.icon("arrow") }}</button>
+      <p class="hero-cta-note">You begin as {{ cast[0].user.name }}, the {{ cast[0].label|lower }}. No password needed.</p>
+    </form>
+    {% endif %}
+    {% endif %}
   </div>
-  <button type="submit" class="button">Sign in</button>
-</form>
-<h2>Things to try</h2>
-<ul class="list-bullet">
-  <li>Sign in as <strong>Alice Chen</strong> and ask for access to the production database.</li>
-  <li>Sign in as <strong>Bob Singh</strong>, her manager, and approve it. Then sign in as <strong>Frank Moreau</strong>, the owner.</li>
-  <li>Sign in as <strong>Dan Okafor</strong> from security to check the tamper-evident audit log.</li>
-</ul>
+  {% if not switching %}
+  <div class="hero-flow">
+    <h2 id="flow-heading" class="hero-flow-title">The full flow takes about 60 seconds</h2>
+    <ol class="flow">
+      <li><span class="flow-n" aria-hidden="true">1</span><span>A requester asks for high-risk access</span></li>
+      <li><span class="flow-n" aria-hidden="true">2</span><span>Their manager and the system's owner approve</span></li>
+      <li><span class="flow-n" aria-hidden="true">3</span><span>Access starts, counts down and ends on its own</span></li>
+      <li><span class="flow-n" aria-hidden="true">4</span><span>Security checks the hash-chained audit log</span></li>
+    </ol>
+  </div>
+  {% endif %}
+</div>
+
+{% if cast %}
+<section class="section" aria-labelledby="personas-heading">
+  <h2 id="personas-heading">Pick a person. No password needed.</h2>
+  <p class="muted section-intro">Start as the requester. The guided checklist then tells you who to switch to at each step.</p>
+  <ul class="personas">
+    {% for p in cast %}
+    <li class="persona{% if loop.first %} persona-featured{% endif %}">
+      <div class="persona-top">
+        {{ m.avatar(p.user.name, "lg") }}
+        <div>
+          <h3 class="persona-name">{{ p.user.name }}</h3>
+          <p class="persona-title">{{ p.user.title }}</p>
+        </div>
+      </div>
+      <p class="persona-tags"><span class="chip">{{ p.label }}</span>{% if loop.first and not switching %} <span class="chip chip-brand">Start here</span>{% endif %}{% if cast_waiting.get(p.user.id) %} <span class="chip chip-amber">{{ cast_waiting[p.user.id] }} waiting</span>{% endif %}</p>
+      <p class="persona-summary">{{ p.summary }}</p>
+      <form method="post" action="/signin">
+        {{ m.csrf(csrf_token) }}
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <input type="hidden" name="user_id" value="{{ p.user.id }}">
+        <button type="submit" class="button button-block{% if not loop.first %} button-secondary{% endif %}">Continue as {{ p.user.name }}</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section class="section card" aria-labelledby="everyone-heading">
+  <h2 id="everyone-heading">{% if cast %}Or sign in as anyone{% else %}Sign in{% endif %}</h2>
+  <form method="post" action="/signin" novalidate>
+    {{ m.csrf(csrf_token) }}
+    <input type="hidden" name="next" value="{{ next_url }}">
+    {% set user_error = errors.get("user_id") %}
+    <div class="field{% if user_error %} field-error{% endif %}">
+      <fieldset class="fieldset" aria-describedby="user-hint{% if user_error %} user_id-error{% endif %}">
+        <legend class="legend">Who are you?</legend>
+        <div id="user-hint" class="hint">This is a demo with no passwords, so you can be anyone. Real deployments use your company's single sign-on instead.</div>
+        {{ m.error_message(errors, "user_id", "user_id") }}
+        <div class="radios radios-grid">
+          {% for person in people %}
+          <div class="radio">
+            <input class="radio-input" type="radio" id="user-{{ person.id }}" name="user_id" value="{{ person.id }}" aria-describedby="user-{{ person.id }}-hint">
+            <label class="radio-label" for="user-{{ person.id }}">{{ person.name }}</label>
+            <div id="user-{{ person.id }}-hint" class="hint radio-hint">{{ person.title }}, {{ person.team }}{% if person.is_security %} (security team){% endif %}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </fieldset>
+    </div>
+    <button type="submit" class="button">Sign in</button>
+  </form>
+</section>
 {% endblock %}

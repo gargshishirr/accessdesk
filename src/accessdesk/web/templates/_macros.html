@@ -6,7 +6,9 @@
 
 {% macro status_tag(status) %}<strong class="tag tag-{{ status.value }}">{{ STATUS_LABELS[status.value] }}</strong>{% endmacro %}
 
-{% macro sensitivity_tag(sensitivity) %}<strong class="tag tag-{{ sensitivity.value }}">{{ sensitivity.value|capitalize }}</strong>{% endmacro %}
+{% macro grant_tag(state) %}<strong class="tag tag-{{ state }}">{{ GRANT_LABELS[state] }}</strong>{% endmacro %}
+
+{% macro sensitivity_tag(sensitivity) %}<strong class="tag tag-risk tag-{{ sensitivity.value }}">{{ sensitivity.value|capitalize }}<span class="visually-hidden"> sensitivity</span></strong>{% endmacro %}
 
 {% macro csrf(token) %}<input type="hidden" name="csrf_token" value="{{ token }}">{% endmacro %}
 
@@ -18,4 +20,51 @@
 {%- elif how == "released" %}{{ "Given back early" if capital else "given back early" }}
 {%- else %}{{ "Removed" if capital else "removed" }} by {{ names.get(grant.ended_by, grant.ended_by) }}{% if grant.end_note %}: “{{ grant.end_note }}”{% endif %}
 {%- endif %}
+{% endmacro %}
+
+{% macro avatar(name, size="") %}<span class="avatar{% if size %} avatar-{{ size }}{% endif %}" aria-hidden="true">{{ name|initials }}</span>{% endmacro %}
+
+{# Decorative line icons, drawn inline so the strict CSP needs no image or font sources. #}
+{% set ICONS = {
+  "lock": '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/><path d="M12 14.5v2.5"/>',
+  "check": '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  "x": '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+  "clock": '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  "shield": '<path d="M12 3l7.5 3v5.5c0 4.6-3.1 7.9-7.5 9.5-4.4-1.6-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.3-4.4"/>',
+  "alert": '<path d="M12 3.5l9 16H3z"/><path d="M12 10v4"/><path d="M12 17h.01"/>',
+  "inbox": '<path d="M3.5 13.5L6 6h12l2.5 7.5V19h-17z"/><path d="M3.5 13.5H8l1.5 2.5h5l1.5-2.5h4.5"/>',
+  "arrow": '<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>',
+  "plus": '<path d="M12 5v14M5 12h14"/>',
+  "key": '<circle cx="8" cy="15" r="4"/><path d="M11 12l8.5-8.5"/><path d="M16 7l2.5 2.5"/><path d="M13.5 9.5l2 2"/>',
+  "list": '<path d="M9 6.5h11M9 12h11M9 17.5h11"/><path d="M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01"/>',
+  "spark": '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1-5.1-1.9 5.1-1.9z"/><path d="M18.5 16.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
+  "activity": '<path d="M3 12h4l2.5-6 5 12 2.5-6h4"/>',
+  "users": '<circle cx="9" cy="8.5" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M15.5 5.2a3.5 3.5 0 0 1 0 6.6"/><path d="M18 14.2a6.5 6.5 0 0 1 3.5 5.8"/>',
+  "dot": '<circle cx="12" cy="12" r="3.5"/>',
+  "minus": '<path d="M6 12h12"/>'
+} %}
+{% macro icon(name, cls="") %}<svg class="icon{% if cls %} {{ cls }}{% endif %}" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">{{ ICONS[name]|safe }}</svg>{% endmacro %}
+
+{% macro empty(name, title, text) %}
+<div class="empty">
+  <span class="empty-icon">{{ icon(name) }}</span>
+  <p class="empty-title">{{ title }}</p>
+  <p class="empty-text">{{ text }}</p>
+</div>
+{% endmacro %}
+
+{# The guided demo's next step: a link if you are already the right person, otherwise a one-click switch. #}
+{% macro tour_action(step, user, token, here="", small=false) %}
+{% if step.person.id == user.id %}
+{% if step.url != here %}
+<a class="button{% if small %} button-small{% endif %}" href="{{ step.url }}">{{ step.action }} {{ icon("arrow") }}</a>
+{% endif %}
+{% else %}
+<form class="inline-form" method="post" action="/signin">
+  {{ csrf(token) }}
+  <input type="hidden" name="user_id" value="{{ step.person.id }}">
+  <input type="hidden" name="next" value="{{ step.url }}">
+  <button type="submit" class="button{% if small %} button-small{% endif %}">Continue as {{ step.person.name }} {{ icon("arrow") }}</button>
+</form>
+{% endif %}
 {% endmacro %}

@@ -103,11 +103,14 @@ def test_request_and_two_approvals_through_the_ui(client: TestClient) -> None:
     )
     assert sent.status_code == 303
     page = follow(client, sent)
-    assert "Request #1 sent. It needs approval from: requester&#39;s manager, resource owner." in page
+    assert (
+        "Request #1 sent. It needs approval from Bob Singh (your manager) and Frank Moreau "
+        "(owner of Production Database)." in page
+    )
     assert "Waiting for approval" in page
 
     for approver, message in [
-        ("bob", "Your approval is recorded. Still waiting for: resource owner."),
+        ("bob", "Your approval is recorded. Still waiting for Frank Moreau (owner of Production Database)."),
         ("frank", "Approved. Alice Chen now has viewer access to Production Database."),
     ]:
         token = sign_in(client, approver)

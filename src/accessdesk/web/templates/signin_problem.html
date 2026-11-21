@@ -1,8 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>{{ heading }}</h1>
-{% for paragraph in paragraphs %}
-<p{% if loop.first %} class="lead"{% endif %}>{{ paragraph }}</p>
-{% endfor %}
-<p><a href="/signin">Try signing in again</a></p>
+<div class="auth-card card">
+  <span class="auth-icon auth-icon-warn">{{ m.icon("alert") }}</span>
+  <h1>{{ heading }}</h1>
+  {% for paragraph in paragraphs %}
+  <p{% if loop.first %} class="lead"{% endif %}>{{ paragraph }}</p>
+  {% endfor %}
+  <p><a class="button button-secondary" href="/signin">Try signing in again</a></p>
+</div>
 {% endblock %}

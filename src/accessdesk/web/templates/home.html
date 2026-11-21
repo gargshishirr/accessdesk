@@ -1,78 +1,151 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>My access</h1>
-<p><a class="button" href="/requests/new">Request access</a></p>
-
-<h2 id="active-heading">Active access</h2>
-{% if grants %}
-<div class="table-wrap" role="region" aria-labelledby="active-heading" tabindex="0">
-  <table class="table" aria-labelledby="active-heading">
-    <thead>
-      <tr><th scope="col">Resource</th><th scope="col">Access</th><th scope="col">Ends</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
-    </thead>
-    <tbody>
-      {% for g in grants %}
-      <tr>
-        <th scope="row">{{ g.resource.name }}</th>
-        <td>{{ g.role.value|capitalize }}</td>
-        <td>{{ m.time(g.expires_at) }}<br><span class="hint">{{ remaining(g.expires_at, now) }}</span></td>
-        <td>
-          <form method="post" action="/grants/{{ g.id }}/release">
-            {{ m.csrf(csrf_token) }}
-            <button type="submit" class="button button-secondary button-small">Give back now<span class="visually-hidden">: {{ g.role.value }} access to {{ g.resource.name }}</span></button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="page-head">
+  <div>
+    <p class="eyebrow">{% if persona_label %}{{ persona_label }} · {% endif %}{{ user.title or user.team }}</p>
+    <h1>Hi, {{ user.name|first_name }}</h1>
+    <p class="page-intro">Your access, what is waiting for you, and what changed recently.</p>
+  </div>
+  <a class="button" href="/requests/new">{{ m.icon("plus") }} Request access</a>
 </div>
-{% else %}
-<p>You have no temporary access right now.</p>
-{% endif %}
 
-<h2 id="requests-heading">My requests</h2>
-{% if requests %}
-<div class="table-wrap" role="region" aria-labelledby="requests-heading" tabindex="0">
-  <table class="table" aria-labelledby="requests-heading">
-    <thead>
-      <tr><th scope="col">Request</th><th scope="col">Resource</th><th scope="col">Access</th><th scope="col">Status</th><th scope="col">Submitted</th></tr>
-    </thead>
-    <tbody>
-      {% for r in requests %}
-      <tr>
-        <th scope="row"><a href="/requests/{{ r.id }}">#{{ r.id }}<span class="visually-hidden">: {{ r.resource.name }}</span></a></th>
-        <td>{{ r.resource.name }}</td>
-        <td>{{ r.role.value|capitalize }}</td>
-        <td>{{ m.status_tag(r.status) }}</td>
-        <td>{{ m.time(r.created_at) }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% else %}
-<p>You have not asked for any access yet.</p>
-{% endif %}
+{% if tour %}{% include "_tour.html" %}{% endif %}
 
-{% if ended %}
-<h2 id="ended-heading">Recently ended</h2>
-<div class="table-wrap" role="region" aria-labelledby="ended-heading" tabindex="0">
-  <table class="table" aria-labelledby="ended-heading">
-    <thead>
-      <tr><th scope="col">Resource</th><th scope="col">Access</th><th scope="col">Ended</th><th scope="col">How</th></tr>
-    </thead>
-    <tbody>
-      {% for g in ended %}
-      <tr>
-        <th scope="row">{{ g.resource.name }}</th>
-        <td>{{ g.role.value|capitalize }}</td>
-        <td>{{ m.time(g.ended_at or g.expires_at) }}</td>
-        <td>{{ m.grant_end(g, names, capital=true)|trim }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<ul class="stats">
+  <li class="stat">
+    <span class="stat-icon stat-icon-green">{{ m.icon("key") }}</span>
+    <span class="stat-text"><span class="stat-label">Active access</span> <span class="stat-value">{{ grants|length }}</span></span>
+  </li>
+  <li class="stat">
+    <span class="stat-icon stat-icon-amber">{{ m.icon("inbox") }}</span>
+    <span class="stat-text"><span class="stat-label">Waiting for you</span> <span class="stat-value">{{ pending|length }}</span></span>
+  </li>
+  <li class="stat">
+    <span class="stat-icon stat-icon-brand">{{ m.icon("clock") }}</span>
+    <span class="stat-text"><span class="stat-label">Your open requests</span> <span class="stat-value">{{ open_requests|length }}</span></span>
+  </li>
+</ul>
+
+<div class="dashboard">
+  <div class="dashboard-main">
+    <section class="card" aria-labelledby="active-heading">
+      <div class="card-head">
+        <h2 id="active-heading">Your active access</h2>
+      </div>
+      {% if grants %}
+      <ul class="grant-list">
+        {% for g in grants %}
+        {% set state = grant_state(g, now) %}
+        <li class="grant">
+          <div class="grant-top">
+            <div class="grant-what">
+              <h3 class="grant-title">{{ g.resource.name }}</h3>
+              <p class="meta">{{ g.role.value|capitalize }} access {{ m.sensitivity_tag(g.resource.sensitivity) }}</p>
+            </div>
+            {{ m.grant_tag(state) }}
+          </div>
+          <div class="meter meter-{{ state }}" aria-hidden="true"><span class="meter-fill w-{{ time_left_percent(g, now) }}"></span></div>
+          <div class="grant-foot">
+            <p class="meta">{{ m.icon("clock") }} <strong>{{ remaining(g.expires_at, now) }}</strong> <span class="nowrap">· ends {{ m.time(g.expires_at) }}</span></p>
+            <form method="post" action="/grants/{{ g.id }}/release">
+              {{ m.csrf(csrf_token) }}
+              <button type="submit" class="button button-secondary button-small">Give back now<span class="visually-hidden">: {{ g.role.value }} access to {{ g.resource.name }}</span></button>
+            </form>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      {{ m.empty("key", "No temporary access right now", "When a request is approved, the access appears here with the time it has left.") }}
+      {% endif %}
+    </section>
+
+    <section class="card" aria-labelledby="requests-heading">
+      <div class="card-head">
+        <h2 id="requests-heading">Your requests</h2>
+      </div>
+      {% if requests %}
+      <ul class="rows">
+        {% for r in requests %}
+        {% set g = grant_for.get(r.id) %}
+        <li class="row">
+          <div class="row-main">
+            <a class="row-link" href="/requests/{{ r.id }}">{{ r.resource.name }}<span class="visually-hidden">, request #{{ r.id }}</span></a>
+            <p class="meta">#{{ r.id }} · {{ r.role.value|capitalize }} for {{ r.hours|short_duration }} · asked {{ ago(r.created_at, now) }}</p>
+          </div>
+          {% if g %}{{ m.grant_tag(grant_state(g, now)) }}{% else %}{{ m.status_tag(r.status) }}{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      {{ m.empty("list", "You have not asked for anything yet", "Choose Request access to ask for temporary access to a system.") }}
+      {% endif %}
+    </section>
+
+    {% if ended %}
+    <section class="card" aria-labelledby="ended-heading">
+      <div class="card-head">
+        <h2 id="ended-heading">Recently ended</h2>
+      </div>
+      <ul class="rows">
+        {% for g in ended %}
+        <li class="row">
+          <div class="row-main">
+            <p class="row-title">{{ g.resource.name }} <span class="muted">· {{ g.role.value|capitalize }}</span></p>
+            <p class="meta">{{ m.grant_end(g, names, capital=true)|trim }} · {{ m.time(g.ended_at or g.expires_at) }}</p>
+          </div>
+          {{ m.grant_tag(grant_state(g, now)) }}
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+  </div>
+
+  <div class="dashboard-side">
+    <section class="card" aria-labelledby="waiting-heading">
+      <div class="card-head">
+        <h2 id="waiting-heading">Waiting for you</h2>
+        {% if pending %}<span class="count">{{ pending|length }}</span>{% endif %}
+      </div>
+      {% if pending %}
+      <ul class="rows">
+        {% for r in pending[:5] %}
+        <li class="row row-person">
+          {{ m.avatar(r.requester.name) }}
+          <div class="row-main">
+            <a class="row-link" href="/requests/{{ r.id }}">{{ r.requester.name }}<span class="visually-hidden">: request #{{ r.id }} for</span> <span class="row-link-sub">{{ r.role.value }} access to {{ r.resource.name }}</span></a>
+            <p class="meta">{{ m.sensitivity_tag(r.resource.sensitivity) }} · {{ r.hours|short_duration }} · {{ ago(r.created_at, now) }}</p>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="card-foot"><a href="/approvals">All approvals</a></p>
+      {% else %}
+      {{ m.empty("inbox", "Nothing needs your decision", "Requests you can approve show up here.") }}
+      {% endif %}
+    </section>
+
+    <section class="card" aria-labelledby="activity-heading">
+      <div class="card-head">
+        <h2 id="activity-heading">Recent activity</h2>
+      </div>
+      {% if activity %}
+      <ol class="feed">
+        {% for item in activity %}
+        <li class="feed-item">
+          <span class="feed-dot feed-{{ item.event.action.split('.')[0] }}" aria-hidden="true"></span>
+          <div>
+            <p class="feed-text">{{ describe_event(item.event, names, resources_by_id, item.request, user.id) }}</p>
+            <p class="meta">{{ ago(item.event.ts, now) }}</p>
+          </div>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      {{ m.empty("activity", "No activity yet", "Your requests, approvals and access changes will show here.") }}
+      {% endif %}
+    </section>
+  </div>
 </div>
-{% endif %}
 {% endblock %}

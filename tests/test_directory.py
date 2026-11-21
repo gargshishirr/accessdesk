@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from accessdesk import directory
 from accessdesk.directory import ACTOR, DirectoryError
 from accessdesk.models import ApproverKind, Reason, Role
+from accessdesk.seed import USERS
 from accessdesk.service import AccessService, ValidationFailed
 from tests.helpers import csrf_from, sign_in
 
@@ -299,9 +300,10 @@ def test_if_a_manager_leaves_security_approves_instead(service: AccessService) -
 def test_people_not_in_the_file_are_left_alone(service: AccessService) -> None:
     report = apply(service, {"people": [{"id": "new", "name": "New Person", "email": "new@example.com"}]})
     assert report.people_added == ["new"]
-    assert len(report.people_not_in_file) == 8
+    assert len(report.people_not_in_file) == len(USERS)
     assert service.user("alice") is not None
-    assert "Not in the file, so left as they are: 8 people (alice, bob" in "\n".join(report.lines())
+    left_alone = f"Not in the file, so left as they are: {len(USERS)} people (alice, bob"
+    assert left_alone in "\n".join(report.lines())
 
 
 def test_loading_reports_unreadable_files(tmp_path: Path) -> None:

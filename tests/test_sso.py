@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from accessdesk.clock import ManualClock
 from accessdesk.config import GOOGLE_ISSUER, OidcSettings, Settings
 from accessdesk.oidc import OidcClient, pkce_challenge
+from accessdesk.seed import SEEDED_THROUGH
 from accessdesk.service import AccessService
 from accessdesk.web import create_app
 from tests.fake_idp import (
@@ -496,6 +497,30 @@ def test_sign_in_pages_keep_the_strict_security_headers(sso: TestClient, provide
         assert page.headers["cache-control"] == "no-store"
         assert page.headers["strict-transport-security"].startswith("max-age=")
         assert "<script" not in page.text
+
+
+def test_demo_personas_switcher_and_guided_demo_never_appear_with_single_sign_on(
+    sso: TestClient, provider: FakeProvider, service: AccessService
+) -> None:
+    service.set_meta(SEEDED_THROUGH, "0")  # even on a database that once had demo data
+    picker = sso.get("/signin").text
+    assert "Continue as" not in picker
+    assert 'name="user_id"' not in picker
+    assert sso.get("/switch").status_code == 404
+
+    sign_in(sso, provider)
+    assert sso.get("/switch").status_code == 404
+    token = csrf_from(sso.get("/").text)
+    persona = sso.post("/signin", data={"csrf_token": token, "user_id": "bob", "next": "/"})
+    assert persona.status_code == 405
+    for path in ("/", "/requests/new?resource=prod-db", "/approvals"):
+        page = sso.get(path).text
+        assert "Signed in as" in page
+        assert "Viewing as" not in page
+        assert "Switch person" not in page
+        assert 'action="/signin"' not in page
+        assert "Guided demo" not in page
+    assert signed_in_as(sso) == "Alice Chen"
 
 
 def test_real_deployments_load_no_third_party_scripts(sso: TestClient) -> None:
